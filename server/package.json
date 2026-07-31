@@ -11,8 +11,11 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@agent-dashboard/shared": "0.0.0",
     "@hono/node-server": "2.0.12",
-    "hono": "4.12.33"
+    "chokidar": "^5.0.0",
+    "hono": "4.12.33",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "24.13.3",
