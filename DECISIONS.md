@@ -82,3 +82,35 @@ providers, assistant, all 10 panels, PWA config. Not started.
   `npm run <script> --workspaces --if-present` for each, so any workspace
   missing a given script (e.g. `web` has no `test` script yet at Phase 0) is
   skipped rather than failing.
+
+## OAuth research findings (§6a pre-flight, Phase 3 blockers)
+
+Five research tickets (issues #9–#13) verified PLAN.md §6a's first-party OAuth details against current sources. Full request/response shapes are in each closed issue's comments — this is a summary of what changed.
+
+### OpenRouter (#9) — one correction
+Key-exchange body must include `code_challenge_method` alongside `code`/`code_verifier` (PLAN.md's table omitted it); omitting it 400s. Authorize URL and base/models endpoints otherwise confirmed correct. Source: openrouter.ai/docs/use-cases/oauth-pkce.
+
+### Anthropic (#10) — two corrections
+1. Redirect URI has moved: `https://platform.claude.com/oauth/code/callback` (not `console.anthropic.com`).
+2. Scopes expanded from 3 to 6: `org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload`.
+Client id (`9d1c250a-e61b-44d9-88ed-5944d1962f5e`) and code-paste/token-exchange mechanics confirmed unchanged. Sources: vendored Claude Code CLI constants files (cross-checked across two independent repos).
+
+### OpenAI (#11) — several corrections
+1. Authorize URL needs extra params PLAN.md omitted: `response_type`, `id_token_add_organizations`, `codex_cli_simplified_flow`, `state`, `originator`.
+2. `chatgpt-account-id` lives at JWT claim path `payload["https://api.openai.com/auth"]["chatgpt_account_id"]`, not top-level.
+3. Mode (a) token-exchange-for-API-key is best-effort and often unavailable — implement mode (b), the Codex backend adapter, as the reliable path, not a rare fallback.
+4. Refresh token request is JSON body, not form-urlencoded.
+Client id, fixed port 1455, and the two-mode approach otherwise confirmed. Source: `openai/codex` `codex-rs/login/src/{server,pkce}.rs`.
+
+### Google (#12) — one correction, one flag
+1. PLAN.md's "PKCE + ephemeral loopback port" describes only one of two flows in gemini-cli source; confirm which flow to implement before coding (see issue #12 for the second flow's details).
+Client id/secret (intentionally public, installed-app pattern) and scopes confirmed unchanged. Source: `google-gemini/gemini-cli` `packages/core/src/code_assist/*`, cross-checked against `jenslys/opencode-gemini-auth`.
+Still flagged as PLAN.md's highest policy-risk flow — consent modal copy must say so explicitly.
+
+### GitHub Copilot (#13) — several corrections
+1. `copilot_internal/v2/token` exchange is `GET` with `Authorization: token <gho_>` (not `POST`/`Bearer`), and also requires `Copilot-Integration-Id`.
+2. Response includes `endpoints.api` — use this rather than hardcoding `api.githubcopilot.com`.
+3. Token lifetime ~25 min (`refresh_in`/`expires_at`).
+4. Chat needs a fuller header set: `Editor-Plugin-Version`, `X-GitHub-Api-Version`, `X-Initiator`, alongside `Editor-Version`/`Copilot-Integration-Id`.
+5. Current OSS implementations (opencode, Zed) actually skip the internal-token exchange entirely and send the raw `gho_` token straight to `api.githubcopilot.com` — a viable, simpler fallback worth considering.
+Device-flow mechanics and VS Code client id otherwise confirmed against GitHub's official docs (doc path moved to `building-oauth-apps`, not `building-github-apps`).
