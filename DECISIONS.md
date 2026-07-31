@@ -90,10 +90,14 @@ Five research tickets (issues #9–#13) verified PLAN.md §6a's first-party OAut
 ### OpenRouter (#9) — one correction
 Key-exchange body must include `code_challenge_method` alongside `code`/`code_verifier` (PLAN.md's table omitted it); omitting it 400s. Authorize URL and base/models endpoints otherwise confirmed correct. Source: openrouter.ai/docs/use-cases/oauth-pkce.
 
-### Anthropic (#10) — two corrections
+### Anthropic (#10) — three corrections, two implementation notes worth keeping
 1. Redirect URI has moved: `https://platform.claude.com/oauth/code/callback` (not `console.anthropic.com`).
-2. Scopes expanded from 3 to 6: `org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload`.
-Client id (`9d1c250a-e61b-44d9-88ed-5944d1962f5e`) and code-paste/token-exchange mechanics confirmed unchanged. Sources: vendored Claude Code CLI constants files (cross-checked across two independent repos).
+2. **Token/refresh endpoint has also moved**: `https://platform.claude.com/v1/oauth/token` (not `console.anthropic.com/v1/oauth/token`) — same host as the redirect, easy to miss since PLAN.md only flagged the redirect.
+3. Scopes expanded from 3 to 6: `org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload`.
+Client id (`9d1c250a-e61b-44d9-88ed-5944d1962f5e`) and code-paste/token-exchange mechanics confirmed unchanged. Authorize URL (`claude.ai/oauth/authorize`) confirmed still valid.
+**Worth implementing:** Anthropic rotates the refresh token on every refresh call — always persist the new one, and coalesce concurrent refresh attempts into a single in-flight promise (two simultaneous refreshes with the same stale token can wipe out freshly-stored tokens per multiple reference implementations).
+**Fallback to know about, not required for v1:** if OAuth-authenticated `/v1/messages` calls 400 with a spurious "out of usage" error, at least one reference implementation works around it with an undocumented `x-anthropic-billing-header`-style text block prepended to the system prompt — reverse-engineered and fragile, only reach for it if the plain `Authorization: Bearer` + `anthropic-beta: oauth-2025-04-20` path actually fails in testing.
+Sources: vendored Claude Code CLI constants files plus ccflare, sitegeist, magenta.nvim, opencode-anthropic-oauth, agentty, speca (cross-checked across 8 independent repos).
 
 ### OpenAI (#11) — several corrections
 1. Authorize URL needs extra params PLAN.md omitted: `response_type`, `id_token_add_organizations`, `codex_cli_simplified_flow`, `state`, `originator`.
