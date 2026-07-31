@@ -1,0 +1,46 @@
+{
+  "jobs": [
+    {
+      "id": "nightly-skill-scan",
+      "name": "Nightly skill scan",
+      "schedule": "0 3 * * *",
+      "command": "POST /api/scan/skills",
+      "enabled": true,
+      "lastRun": "2026-01-14T03:00:04Z",
+      "notes": "Rebuilds skills.json from configured skill roots."
+    },
+    {
+      "id": "sprint-rollover",
+      "name": "Sprint rollover reminder",
+      "schedule": "0 9 * * 1",
+      "agentId": "planner",
+      "enabled": true,
+      "lastRun": "2026-01-12T09:00:00Z"
+    },
+    {
+      "id": "hourly-digest",
+      "name": "Hourly agent status digest",
+      "schedule": "0 * * * *",
+      "agentId": "researcher",
+      "enabled": true,
+      "lastRun": "2026-01-14T09:00:00Z",
+      "notes": "Summarizes agent status changes over the last hour."
+    },
+    {
+      "id": "weekly-harness-audit",
+      "name": "Weekly harness audit",
+      "schedule": "30 6 * * 0",
+      "command": "harness-audit collect",
+      "enabled": false,
+      "notes": "Disabled while the collector script is being rewritten."
+    },
+    {
+      "id": "five-minute-heartbeat",
+      "name": "Heartbeat check",
+      "schedule": "*/5 * * * *",
+      "agentId": "coder",
+      "enabled": true,
+      "lastRun": "2026-01-14T09:35:00Z"
+    }
+  ]
+}

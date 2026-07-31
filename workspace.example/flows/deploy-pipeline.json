@@ -1,0 +1,63 @@
+{
+  "id": "deploy-pipeline",
+  "name": "Deploy pipeline",
+  "description": "Build, test, and ship a release from a merged PR.",
+  "steps": [
+    { "id": "checkout", "label": "Checkout", "status": "done", "startedAt": "2026-01-13T10:00:00Z", "finishedAt": "2026-01-13T10:00:05Z" },
+    {
+      "id": "install",
+      "label": "Install deps",
+      "status": "done",
+      "startedAt": "2026-01-13T10:00:05Z",
+      "finishedAt": "2026-01-13T10:00:40Z"
+    },
+    {
+      "id": "test",
+      "label": "Run tests",
+      "agentId": "reviewer",
+      "status": "done",
+      "startedAt": "2026-01-13T10:00:40Z",
+      "finishedAt": "2026-01-13T10:02:10Z"
+    },
+    {
+      "id": "build",
+      "label": "Build",
+      "agentId": "coder",
+      "status": "done",
+      "startedAt": "2026-01-13T10:02:10Z",
+      "finishedAt": "2026-01-13T10:03:00Z"
+    },
+    {
+      "id": "deploy",
+      "label": "Deploy",
+      "agentId": "coder",
+      "status": "failed",
+      "startedAt": "2026-01-13T10:03:00Z",
+      "finishedAt": "2026-01-13T10:03:20Z",
+      "notes": "Deploy target unreachable, retried manually."
+    }
+  ],
+  "edges": [
+    { "from": "checkout", "to": "install" },
+    { "from": "install", "to": "test" },
+    { "from": "test", "to": "build" },
+    { "from": "build", "to": "deploy" }
+  ],
+  "runs": [
+    {
+      "startedAt": "2026-01-13T10:00:00Z",
+      "events": [
+        { "stepId": "checkout", "status": "running", "at": "2026-01-13T10:00:00Z" },
+        { "stepId": "checkout", "status": "done", "at": "2026-01-13T10:00:05Z" },
+        { "stepId": "install", "status": "running", "at": "2026-01-13T10:00:05Z" },
+        { "stepId": "install", "status": "done", "at": "2026-01-13T10:00:40Z" },
+        { "stepId": "test", "status": "running", "at": "2026-01-13T10:00:40Z" },
+        { "stepId": "test", "status": "done", "at": "2026-01-13T10:02:10Z" },
+        { "stepId": "build", "status": "running", "at": "2026-01-13T10:02:10Z" },
+        { "stepId": "build", "status": "done", "at": "2026-01-13T10:03:00Z" },
+        { "stepId": "deploy", "status": "running", "at": "2026-01-13T10:03:00Z" },
+        { "stepId": "deploy", "status": "failed", "at": "2026-01-13T10:03:20Z" }
+      ]
+    }
+  ]
+}

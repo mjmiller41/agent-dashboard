@@ -1,0 +1,43 @@
+{
+  "id": "research-to-report",
+  "name": "Research to report",
+  "description": "Scope a topic, gather sources, verify claims, and write up a report.",
+  "steps": [
+    { "id": "scope", "label": "Scope topic", "agentId": "planner", "status": "done", "startedAt": "2026-01-14T07:00:00Z", "finishedAt": "2026-01-14T07:05:00Z" },
+    {
+      "id": "search",
+      "label": "Parallel source search",
+      "agentId": "researcher",
+      "status": "done",
+      "startedAt": "2026-01-14T07:05:00Z",
+      "finishedAt": "2026-01-14T07:20:00Z"
+    },
+    {
+      "id": "verify",
+      "label": "Adversarial verify",
+      "agentId": "researcher",
+      "status": "running",
+      "startedAt": "2026-01-14T07:20:00Z"
+    },
+    { "id": "write", "label": "Write report", "agentId": "researcher", "status": "pending" },
+    { "id": "review", "label": "Review", "agentId": "reviewer", "status": "pending" }
+  ],
+  "edges": [
+    { "from": "scope", "to": "search" },
+    { "from": "search", "to": "verify" },
+    { "from": "verify", "to": "write" },
+    { "from": "write", "to": "review" }
+  ],
+  "runs": [
+    {
+      "startedAt": "2026-01-14T07:00:00Z",
+      "events": [
+        { "stepId": "scope", "status": "running", "at": "2026-01-14T07:00:00Z" },
+        { "stepId": "scope", "status": "done", "at": "2026-01-14T07:05:00Z" },
+        { "stepId": "search", "status": "running", "at": "2026-01-14T07:05:00Z" },
+        { "stepId": "search", "status": "done", "at": "2026-01-14T07:20:00Z" },
+        { "stepId": "verify", "status": "running", "at": "2026-01-14T07:20:00Z" }
+      ]
+    }
+  ]
+}

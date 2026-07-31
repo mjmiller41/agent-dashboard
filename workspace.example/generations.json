@@ -1,0 +1,76 @@
+{
+  "items": [
+    {
+      "id": "gen-01",
+      "createdAt": "2026-01-10T12:00:00Z",
+      "kind": "image",
+      "prompt": "geometric logo, dark background, purple accent",
+      "model": "example-image-model",
+      "path": "media/gen-01.png",
+      "tags": ["logo", "concept"]
+    },
+    {
+      "id": "gen-02",
+      "createdAt": "2026-01-10T12:05:00Z",
+      "kind": "image",
+      "prompt": "isometric dashboard mockup",
+      "model": "example-image-model",
+      "path": "media/gen-02.png",
+      "tags": ["mockup", "ui"]
+    },
+    {
+      "id": "gen-03",
+      "createdAt": "2026-01-11T09:00:00Z",
+      "kind": "video",
+      "prompt": "app walkthrough loop, 5s",
+      "model": "example-video-model",
+      "path": "media/gen-03.mp4",
+      "tags": ["walkthrough", "demo"]
+    },
+    {
+      "id": "gen-04",
+      "createdAt": "2026-01-11T15:30:00Z",
+      "kind": "image",
+      "prompt": "pixel art agent avatar set",
+      "model": "example-image-model",
+      "path": "media/gen-04.png",
+      "tags": ["avatar", "pixel-art"]
+    },
+    {
+      "id": "gen-05",
+      "createdAt": "2026-01-12T08:45:00Z",
+      "kind": "image",
+      "prompt": "sprint board illustration",
+      "model": "example-image-model",
+      "path": "media/gen-05.png",
+      "tags": ["sprints", "illustration"]
+    },
+    {
+      "id": "gen-06",
+      "createdAt": "2026-01-12T19:10:00Z",
+      "kind": "video",
+      "prompt": "flow playback transport bar demo",
+      "model": "example-video-model",
+      "path": "media/gen-06.mp4",
+      "tags": ["flows", "demo"]
+    },
+    {
+      "id": "gen-07",
+      "createdAt": "2026-01-13T10:20:00Z",
+      "kind": "image",
+      "prompt": "terminal-green theme preview",
+      "model": "example-image-model",
+      "url": "https://example.com/generated/gen-07.png",
+      "tags": ["theme", "preview"]
+    },
+    {
+      "id": "gen-08",
+      "createdAt": "2026-01-14T06:00:00Z",
+      "kind": "video",
+      "prompt": "provider connection wizard walkthrough",
+      "model": "example-video-model",
+      "path": "media/gen-08.mp4",
+      "tags": ["providers", "wizard"]
+    }
+  ]
+}

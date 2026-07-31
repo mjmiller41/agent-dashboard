@@ -1,0 +1,17 @@
+{
+  "title": "Agent Dashboard",
+  "theme": {
+    "preset": "dark",
+    "accent": "#7c5cff"
+  },
+  "tabs": [
+    { "id": "agents", "panel": "agents", "label": "Agents", "icon": "icon-01.svg" },
+    { "id": "flows", "panel": "flows", "label": "Flows", "icon": "icon-02.svg" },
+    { "id": "skills", "panel": "skills", "label": "Skill Trees", "icon": "icon-03.svg" },
+    { "id": "crons", "panel": "crons", "label": "Crons", "icon": "icon-04.svg" },
+    { "id": "generations", "panel": "generations", "label": "Generations", "icon": "icon-05.svg" },
+    { "id": "docs", "panel": "docs", "label": "Docs", "icon": "icon-06.svg" },
+    { "id": "links", "panel": "links", "label": "Links", "icon": "icon-07.svg" },
+    { "id": "sprints", "panel": "sprints", "label": "Sprints", "icon": "icon-08.svg" }
+  ]
+}

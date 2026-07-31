@@ -1,0 +1,83 @@
+{
+  "scannedAt": "2026-01-14T08:00:00Z",
+  "nodes": [
+    { "id": "cat-research", "label": "Research", "category": "category", "source": "scan" },
+    { "id": "cat-coding", "label": "Coding", "category": "category", "source": "scan" },
+    { "id": "cat-writing", "label": "Writing", "category": "category", "source": "scan" },
+    {
+      "id": "skill-web-search",
+      "label": "web-search",
+      "category": "cat-research",
+      "description": "Search the web for current information",
+      "source": "scan"
+    },
+    {
+      "id": "skill-deep-research",
+      "label": "deep-research",
+      "category": "cat-research",
+      "description": "Multi-source verified research reports",
+      "source": "scan"
+    },
+    {
+      "id": "skill-tdd",
+      "label": "tdd",
+      "category": "cat-coding",
+      "description": "Test-driven development workflow",
+      "source": "scan"
+    },
+    {
+      "id": "skill-diagnosing-bugs",
+      "label": "diagnosing-bugs",
+      "category": "cat-coding",
+      "description": "Structured bug diagnosis loop",
+      "source": "scan"
+    },
+    {
+      "id": "skill-codebase-design",
+      "label": "codebase-design",
+      "category": "cat-coding",
+      "description": "Deep-module design vocabulary",
+      "source": "scan"
+    },
+    {
+      "id": "skill-resolving-merge-conflicts",
+      "label": "resolving-merge-conflicts",
+      "category": "cat-coding",
+      "description": "Resolve in-progress git merge conflicts",
+      "source": "scan"
+    },
+    {
+      "id": "skill-skill-creator",
+      "label": "skill-creator",
+      "category": "cat-coding",
+      "description": "Create and optimize agent skills",
+      "source": "scan"
+    },
+    {
+      "id": "skill-file-doc",
+      "label": "file-doc",
+      "category": "cat-writing",
+      "description": "File a document into the wiki",
+      "source": "scan"
+    },
+    {
+      "id": "skill-watch-n-report",
+      "label": "watch-n-report",
+      "category": "cat-writing",
+      "description": "Watch a video and write an exhaustive report",
+      "source": "manual"
+    }
+  ],
+  "edges": [
+    { "from": "cat-research", "to": "skill-web-search" },
+    { "from": "cat-research", "to": "skill-deep-research" },
+    { "from": "cat-coding", "to": "skill-tdd" },
+    { "from": "cat-coding", "to": "skill-diagnosing-bugs" },
+    { "from": "cat-coding", "to": "skill-codebase-design" },
+    { "from": "cat-coding", "to": "skill-resolving-merge-conflicts" },
+    { "from": "cat-coding", "to": "skill-skill-creator" },
+    { "from": "cat-writing", "to": "skill-file-doc" },
+    { "from": "cat-writing", "to": "skill-watch-n-report" },
+    { "from": "skill-deep-research", "to": "skill-web-search" }
+  ]
+}

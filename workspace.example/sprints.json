@@ -1,0 +1,42 @@
+{
+  "current": {
+    "name": "Sprint 1 — File-first foundation",
+    "startsOn": "2026-01-12",
+    "endsOn": "2026-01-23"
+  },
+  "tasks": [
+    { "id": "t01", "title": "Scaffold npm workspaces", "status": "done", "assigneeId": "coder", "order": 0 },
+    { "id": "t02", "title": "Wire eslint + prettier + vitest", "status": "done", "assigneeId": "coder", "order": 1 },
+    {
+      "id": "t03",
+      "title": "Write shared zod schemas",
+      "status": "doing",
+      "assigneeId": "coder",
+      "notes": "One file per document type",
+      "order": 0
+    },
+    { "id": "t04", "title": "Build workspace.example demo data", "status": "doing", "assigneeId": "coder", "order": 1 },
+    { "id": "t05", "title": "workspace.ts safe read/write", "status": "todo", "assigneeId": "coder", "order": 0 },
+    { "id": "t06", "title": "chokidar -> SSE watcher", "status": "todo", "assigneeId": "coder", "order": 1 },
+    {
+      "id": "t07",
+      "title": "Research OpenRouter OAuth PKCE",
+      "status": "done",
+      "assigneeId": "researcher",
+      "order": 2
+    },
+    {
+      "id": "t08",
+      "title": "Research Anthropic first-party OAuth",
+      "status": "done",
+      "assigneeId": "researcher",
+      "order": 3
+    },
+    { "id": "t09", "title": "Review Phase 1 PR", "status": "todo", "assigneeId": "reviewer", "order": 2 },
+    { "id": "t10", "title": "Design provider wizard UX", "status": "backlog", "assigneeId": "planner", "order": 0 },
+    { "id": "t11", "title": "Draft Phase 3 task breakdown", "status": "backlog", "assigneeId": "planner", "order": 1 },
+    { "id": "t12", "title": "Pick theme presets palette", "status": "backlog", "order": 2 },
+    { "id": "t13", "title": "Spike React Flow playback transport", "status": "backlog", "order": 3 },
+    { "id": "t14", "title": "Draft AGENTS.md onboarding doc", "status": "backlog", "assigneeId": "planner", "order": 4 }
+  ]
+}

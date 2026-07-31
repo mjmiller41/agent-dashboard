@@ -1,0 +1,44 @@
+{
+  "agents": [
+    {
+      "id": "researcher",
+      "name": "Researcher",
+      "role": "Research & fact-finding",
+      "iconId": "icon-01.svg",
+      "status": "active",
+      "currentTask": "Surveying OAuth flows for Anthropic + OpenAI",
+      "lastUpdated": "2026-01-14T09:32:00Z",
+      "provider": "anthropic",
+      "notes": "Prefers long-running background tasks; check in every hour."
+    },
+    {
+      "id": "coder",
+      "name": "Coder",
+      "role": "Implementation",
+      "iconId": "icon-02.svg",
+      "status": "active",
+      "currentTask": "Building shared zod schemas (Phase 1)",
+      "lastUpdated": "2026-01-14T09:40:12Z",
+      "provider": "anthropic"
+    },
+    {
+      "id": "reviewer",
+      "name": "Reviewer",
+      "role": "Code review & QA",
+      "iconId": "icon-03.svg",
+      "status": "idle",
+      "lastUpdated": "2026-01-13T18:05:44Z",
+      "provider": "openai",
+      "notes": "Waiting on Phase 1 PR."
+    },
+    {
+      "id": "planner",
+      "name": "Planner",
+      "role": "Task breakdown & sequencing",
+      "iconId": "icon-04.svg",
+      "status": "blocked",
+      "currentTask": "Blocked on provider OAuth reference docs",
+      "lastUpdated": "2026-01-12T11:15:00Z"
+    }
+  ]
+}

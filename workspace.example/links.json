@@ -1,0 +1,30 @@
+{
+  "groups": [
+    {
+      "id": "docs",
+      "title": "Docs & references",
+      "links": [
+        { "title": "Hono", "url": "https://hono.dev/", "note": "Server framework" },
+        { "title": "Zod", "url": "https://zod.dev/", "note": "Schema validation" },
+        { "title": "React Flow", "url": "https://reactflow.dev/", "note": "Flow canvas" }
+      ]
+    },
+    {
+      "id": "providers",
+      "title": "Provider consoles",
+      "links": [
+        { "title": "Anthropic Console", "url": "https://console.anthropic.com/" },
+        { "title": "OpenAI Platform", "url": "https://platform.openai.com/" },
+        { "title": "OpenRouter", "url": "https://openrouter.ai/", "note": "Officially sanctioned OAuth" }
+      ]
+    },
+    {
+      "id": "team",
+      "title": "Team",
+      "links": [
+        { "title": "Standup notes", "url": "https://example.com/standup" },
+        { "title": "Roadmap board", "url": "https://example.com/roadmap", "note": "Internal only" }
+      ]
+    }
+  ]
+}
