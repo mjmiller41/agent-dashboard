@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+workspace/
+!workspace.example/
+.env
+.env.local
+e2e/test-results/
+e2e/playwright-report/
