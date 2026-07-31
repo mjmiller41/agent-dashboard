@@ -102,10 +102,13 @@ Client id (`9d1c250a-e61b-44d9-88ed-5944d1962f5e`) and code-paste/token-exchange
 4. Refresh token request is JSON body, not form-urlencoded.
 Client id, fixed port 1455, and the two-mode approach otherwise confirmed. Source: `openai/codex` `codex-rs/login/src/{server,pkce}.rs`.
 
-### Google (#12) — one correction, one flag
-1. PLAN.md's "PKCE + ephemeral loopback port" describes only one of two flows in gemini-cli source; confirm which flow to implement before coding (see issue #12 for the second flow's details).
-Client id/secret (intentionally public, installed-app pattern) and scopes confirmed unchanged. Source: `google-gemini/gemini-cli` `packages/core/src/code_assist/*`, cross-checked against `jenslys/opencode-gemini-auth`.
-Still flagged as PLAN.md's highest policy-risk flow — consent modal copy must say so explicitly.
+### Google (#12) — client id/secret/scopes/endpoints confirmed; PKCE source corrected; two new implementation requirements
+1. **PKCE clarification:** gemini-cli's own loopback browser flow (`authWithWeb`) does *not* use PKCE — it's a confidential-client `client_secret` + `state` exchange. Only its separate no-browser/manual flow uses PKCE, and that one redirects to Google's hosted `codeassist.google.com/authcode` page, not a loopback. **Decision: keep PLAN.md's PKCE-loopback design anyway** (more secure, confirmed working against Google's endpoint) — but port the actual PKCE mechanics from `jenslys/opencode-gemini-auth/src/gemini/oauth.ts`, not from gemini-cli's browser flow (there's nothing there to port).
+2. Exact `loadCodeAssist`/`onboardUser`/`:generateContent` JSON envelopes now fully specified in issue #12 (endpoint base is `cloudcode-pa.googleapis.com/v1internal`, note `v1internal` not `v1`/`v1beta`; free-tier onboarding must omit `cloudaicompanionProject` entirely or it 412s; `:generateContent` wraps the public API's body one level deeper under `request`/`response` keys with `project`/`user_prompt_id` routing fields).
+3. **New:** reject purely-numeric input in the wizard's `GOOGLE_CLOUD_PROJECT` field — Google requires the string Project ID, not the numeric Project Number (gemini-cli validates this explicitly).
+4. **New:** surface `ineligibleTiers[].reasonCode === 'VALIDATION_REQUIRED'` (with its `validationUrl`) as a distinct wizard state — "needs verification, click here" — not a generic failure.
+Client id/secret (intentionally public, installed-app pattern per Google's own OAuth docs) and scopes confirmed unchanged. Source: `google-gemini/gemini-cli` `packages/core/src/code_assist/*`, cross-checked against `jenslys/opencode-gemini-auth`.
+Still flagged as PLAN.md's highest policy-risk flow — gemini-cli's own source has dedicated `SECURITY_POLICY_VIOLATED`/VPC-SC handling, reinforcing that Google actively gates this API. Consent modal copy must say so explicitly; no additional mitigation beyond §6a's existing plan identified.
 
 ### GitHub Copilot (#13) — several corrections
 1. `copilot_internal/v2/token` exchange is `GET` with `Authorization: token <gho_>` (not `POST`/`Bearer`), and also requires `Copilot-Integration-Id`.
