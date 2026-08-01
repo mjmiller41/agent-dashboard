@@ -1931,3 +1931,72 @@ The popup/gesture hardening from the earlier pass is still worth keeping
 state, real callback page), but it was **not** the cause. The real callback
 page turned out to be load-bearing for diagnosis: it's what made the
 difference between "SPA shell" and "server response" observable at all.
+
+## Post-ship hotfix (#18): loopback `redirect_uri` mismatch + naive-`?` callbacks
+
+After the service-worker fix (#16) unblocked the redirect, Google and
+OpenRouter still failed. Two further defects, both in the loopback flow.
+
+### 1. `redirect_uri` differed between authorize and token exchange (Google)
+
+The start route registered the **bare** callback URI on the pending flow:
+
+```
+http://127.0.0.1:4680/api/providers/oauth/callback
+```
+
+while each provider's `buildAuthorizeUrl` separately appended `?flow=<id>`,
+so the provider actually received:
+
+```
+http://127.0.0.1:4680/api/providers/oauth/callback?flow=<id>
+```
+
+RFC 6749 §4.1.3 requires the token request's `redirect_uri` to be **identical**
+to the authorize request's, and Google enforces it. `googleExchange` replayed
+the stored (bare) URI, so every Google exchange was rejected — the sign-in
+itself succeeded, then the final step failed.
+
+Fixed by building the effective redirect URI **once**, in the start route,
+with `?flow=` already included, and having both providers use it verbatim.
+The value sent to the provider and the value stored for the exchange are now
+the same string by construction, which is what the new tests pin.
+
+OpenRouter was unaffected by this specific defect (its key exchange sends no
+`redirect_uri` at all), but it shared the same code path.
+
+### 2. Callback parsing broke if a provider appended with a second `?`
+
+Because the flow id must live inside the redirect URI (OpenRouter never echoes
+`state` back), the URI already contains a query string. A provider that
+appends its result naively produces:
+
+```
+/api/providers/oauth/callback?flow=abc?code=xyz
+```
+
+A strict parse yields `flow="abc?code=xyz"` and **no code**, which surfaced as
+the misleading "The provider redirected back without a code."
+
+`parseCallbackParams` now normalises any `?` after the first into `&` before
+parsing. Providers that append correctly (with `&`) are unchanged. Verified
+live against OpenRouter's real key-exchange endpoint: both the well-behaved
+`&code=` and the naive `?code=` callback shapes now resolve the pending flow
+and reach the real exchange, which rejects only the deliberately fake code
+("Invalid code") rather than failing earlier with a parse error.
+
+### Verification status — read this before assuming it's done
+
+- **OpenRouter**: verified live end-to-end up to the real exchange endpoint,
+  for both callback shapes. The only untested link is a genuine authorization
+  code (no account here).
+- **Google**: the mismatch is a provable protocol violation and is now pinned
+  by tests, but the fix is **not** verified against Google's token endpoint —
+  doing so needs a real interactive sign-in, and an authorization code is
+  single-use. Reasoned + unit-tested, not live-proven. If Gemini still fails,
+  the callback page now prints Google's verbatim error, which will say
+  precisely which parameter it objects to.
+
+Regression tests assert the sent and stored URIs are identical for both
+providers, that `?flow=` appears exactly once, and cover the doubled-`?`
+parse. Confirmed to fail against the old code, not vacuous.

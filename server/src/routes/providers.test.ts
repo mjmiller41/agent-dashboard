@@ -14,9 +14,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CredentialStore } from '../providers/credentials.ts';
+import { loopbackFlows } from '../providers/oauth.ts';
 import { SettingsStore } from '../providers/settings.ts';
 import type { WorkspaceEvent } from '../watch.ts';
-import { createProvidersRoutes } from './providers.ts';
+import { createProvidersRoutes, parseCallbackParams } from './providers.ts';
 
 let dir: string;
 let app: Hono;
@@ -216,5 +217,70 @@ describe('GET/POST /api/providers/settings', () => {
     expect((await after.json()) as { firstPartyConsentAccepted: boolean }).toEqual({
       firstPartyConsentAccepted: true,
     });
+  });
+});
+
+// --- OAuth loopback redirect_uri consistency (#16 follow-up) ---------------
+//
+// RFC 6749 §4.1.3: the token request's redirect_uri MUST be identical to the
+// one sent in the authorize request. Google enforces this strictly and fails
+// the exchange with invalid_grant otherwise.
+//
+// This regressed because the flow registered the bare callback URI while each
+// provider's buildAuthorizeUrl appended `?flow=<id>` itself, so the two
+// silently diverged. These tests pin them together by construction.
+describe('pkce-loopback redirect_uri consistency', () => {
+  it.each(['google', 'openrouter'])(
+    '%s sends the same redirect_uri it stores for the exchange',
+    async (providerId) => {
+      const res = await app.request(`/api/providers/${providerId}/oauth/start`, { method: 'POST' });
+      expect(res.status).toBe(200);
+      const { authUrl } = (await res.json()) as { authUrl: string };
+
+      // The URI actually presented to the provider.
+      const params = new URL(authUrl).searchParams;
+      const sentUri = params.get('redirect_uri') ?? params.get('callback_url');
+      expect(sentUri).toBeTruthy();
+
+      // The flow id travels inside that URI; the exchange will replay whatever
+      // the flow has stored.
+      const flowId = new URL(sentUri!).searchParams.get('flow');
+      expect(flowId).toBeTruthy();
+
+      // `take` is destructive, which is fine here and also proves the flow was
+      // registered under exactly the id embedded in the redirect URI.
+      const stored = loopbackFlows.take(flowId!);
+      expect(stored, 'flow should be registered under the id in the redirect URI').toBeTruthy();
+      expect(stored!.redirectUri).toBe(sentUri);
+    },
+  );
+
+  it('does not append the flow id twice', async () => {
+    const res = await app.request('/api/providers/google/oauth/start', { method: 'POST' });
+    const { authUrl } = (await res.json()) as { authUrl: string };
+    const sentUri = new URL(authUrl).searchParams.get('redirect_uri')!;
+    expect(sentUri.match(/flow=/g)).toHaveLength(1);
+  });
+});
+
+describe('parseCallbackParams', () => {
+  it('parses a normal callback query', () => {
+    const p = parseCallbackParams('/api/providers/oauth/callback?flow=abc&code=xyz&state=s');
+    expect(p.get('flow')).toBe('abc');
+    expect(p.get('code')).toBe('xyz');
+    expect(p.get('state')).toBe('s');
+  });
+
+  it('recovers when the provider appends its result with a second "?"', () => {
+    // OpenRouter-style naive concatenation onto a callback_url that already
+    // has a query. A strict parse yields flow="abc?code=xyz" and no code,
+    // surfacing as a misleading "redirected back without a code".
+    const p = parseCallbackParams('/api/providers/oauth/callback?flow=abc?code=xyz');
+    expect(p.get('flow')).toBe('abc');
+    expect(p.get('code')).toBe('xyz');
+  });
+
+  it('returns nothing for a query-less URL', () => {
+    expect([...parseCallbackParams('/api/providers/oauth/callback')]).toEqual([]);
   });
 });

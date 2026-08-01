@@ -461,12 +461,14 @@ export const PROVIDERS: ProviderDescriptor[] = [
     oauth: {
       kind: 'pkce-loopback',
       authorizeUrl: OPENROUTER_OAUTH.authorizeUrl,
-      buildAuthorizeUrl: ({ challenge, redirectUri, flowId }) => {
-        // OpenRouter's redirect never echoes back a `state` param, so the flow id
-        // has to travel in the callback_url itself for /oauth/callback to find
-        // the matching pending flow (see DECISIONS.md "Phase 3").
+      buildAuthorizeUrl: ({ challenge, redirectUri }) => {
+        // OpenRouter's redirect never echoes back a `state` param, so the flow
+        // id travels in the callback_url itself (see DECISIONS.md "Phase 3").
+        // `redirectUri` already carries `?flow=` — the start route builds it
+        // that way so the authorize and token requests use an identical URI.
+        // Do NOT append `?flow=` again here.
         const params = new URLSearchParams({
-          callback_url: `${redirectUri}?flow=${flowId}`,
+          callback_url: redirectUri,
           code_challenge: challenge,
           code_challenge_method: 'S256',
         });
@@ -556,10 +558,14 @@ export const PROVIDERS: ProviderDescriptor[] = [
       kind: 'pkce-loopback',
       authorizeUrl: GOOGLE_OAUTH.authorizeUrl,
       scopes: GOOGLE_OAUTH.scopes,
-      buildAuthorizeUrl: ({ challenge, state, redirectUri, flowId }) => {
+      buildAuthorizeUrl: ({ challenge, state, redirectUri }) => {
+        // `redirectUri` already carries `?flow=` and is the exact string the
+        // token exchange will send back (RFC 6749 §4.1.3 requires them to
+        // match, and Google enforces it). Do NOT append `?flow=` again here —
+        // doing so is what made every Google exchange fail with invalid_grant.
         const params = new URLSearchParams({
           client_id: GOOGLE_OAUTH.clientId,
-          redirect_uri: `${redirectUri}?flow=${encodeURIComponent(flowId)}`,
+          redirect_uri: redirectUri,
           response_type: 'code',
           scope: GOOGLE_OAUTH.scopes.join(' '),
           access_type: 'offline',

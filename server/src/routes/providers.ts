@@ -222,7 +222,21 @@ export function createProvidersRoutes(
       if (oauth.kind === 'pkce-loopback') {
         const flowId = generateFlowId();
         const origin = new URL(c.req.url).origin;
-        const redirectUri = `${origin}/api/providers/oauth/callback`;
+        // The flow id travels INSIDE the redirect URI (OpenRouter never echoes
+        // `state` back, so there's nowhere else to put it).
+        //
+        // It is critical that this exact string is both (a) sent as
+        // `redirect_uri` in the authorize request and (b) stored on the flow
+        // for the later token exchange. OAuth 2.0 (RFC 6749 §4.1.3) requires
+        // the token request's redirect_uri to be *identical* to the authorize
+        // request's, and Google enforces that strictly.
+        //
+        // Previously each provider's buildAuthorizeUrl appended `?flow=`
+        // itself while the bare URI was registered on the flow, so the two
+        // differed and Google rejected every exchange with invalid_grant.
+        // Building it once here is what keeps them in sync -- providers now
+        // use this value verbatim.
+        const redirectUri = `${origin}/api/providers/oauth/callback?flow=${encodeURIComponent(flowId)}`;
         loopbackFlows.register(flowId, {
           providerId: id,
           verifier,
@@ -293,10 +307,11 @@ export function createProvidersRoutes(
 
   // Shared loopback callback for pkce-loopback providers (OpenRouter, Google).
   routes.get('/oauth/callback', async (c) => {
-    const flowId = c.req.query('flow');
-    const code = c.req.query('code');
-    const state = c.req.query('state') ?? null;
-    const error = c.req.query('error');
+    const params = parseCallbackParams(c.req.url);
+    const flowId = params.get('flow') ?? undefined;
+    const code = params.get('code') ?? undefined;
+    const state = params.get('state');
+    const error = params.get('error') ?? undefined;
     if (error) return c.html(callbackPage('Sign-in cancelled', `The provider reported: ${error}`), 400);
     if (!flowId || !code) {
       return c.html(
@@ -322,6 +337,29 @@ export function createProvidersRoutes(
   });
 
   return routes;
+}
+
+/**
+ * Parses the callback query string, tolerating a second literal `?`.
+ *
+ * Our redirect URI already carries `?flow=<id>` (it has to: OpenRouter never
+ * echoes `state` back, and the URI must stay byte-identical between the
+ * authorize and token requests). A provider that appends its result with a
+ * naive `url + '?code=...'` therefore produces
+ *
+ *   /api/providers/oauth/callback?flow=abc?code=xyz
+ *
+ * where a strict parse yields flow="abc?code=xyz" and no code at all -- the
+ * sign-in then fails with a misleading "redirected back without a code".
+ * Everything after the first `?` is really a query string, so we normalise
+ * any subsequent `?` into `&` before parsing. Providers that append
+ * correctly (with `&`) are unaffected.
+ */
+export function parseCallbackParams(rawUrl: string): URLSearchParams {
+  const queryStart = rawUrl.indexOf('?');
+  if (queryStart === -1) return new URLSearchParams();
+  const query = rawUrl.slice(queryStart + 1).replace(/\?/g, '&');
+  return new URLSearchParams(query);
 }
 
 /** Minimal self-contained page for the OAuth popup to land on. Deliberately
