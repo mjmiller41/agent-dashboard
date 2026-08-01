@@ -6,8 +6,15 @@
 // packages/core/src/code_assist/*). Full streaming chat is Phase 4 — this
 // module only needs to support a live "Test" call and (a static) model list
 // for Phase 3, per the build brief.
+import type {
+  LanguageModelV4,
+  LanguageModelV4CallOptions,
+  LanguageModelV4Content,
+  LanguageModelV4StreamPart,
+} from '@ai-sdk/provider';
 import { GOOGLE_OAUTH } from '../firstparty.ts';
 import type { ModelInfo, ProviderTestResult } from '../types.ts';
+import { flattenPrompt, nullUsage, parseSseJsonStream } from './text-prompt.ts';
 
 export class GoogleValidationRequiredError extends Error {
   readonly validationUrl: string;
@@ -153,4 +160,135 @@ export function codeAssistListModels(): ModelInfo[] {
     { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
     { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
   ];
+}
+
+// --- LanguageModelV4 adapter (Phase 4 — POST /api/chat's streamText) -------
+// Text-only, streamText-focused implementation (see text-prompt.ts's doc
+// comment for why tool-calling isn't wired in here). Google's OAuth flow
+// isn't live-testable in this environment (no account, per DECISIONS.md
+// Phase 3) so this is verified via unit tests with a mocked `fetch` only —
+// not a real Code Assist account.
+interface CodeAssistContentPart {
+  text?: string;
+}
+interface CodeAssistCandidate {
+  content?: { parts?: CodeAssistContentPart[] };
+  finishReason?: string;
+}
+interface CodeAssistGenerateEnvelope {
+  response?: { candidates?: CodeAssistCandidate[] };
+}
+
+function extractCandidateText(envelope: CodeAssistGenerateEnvelope): string {
+  const parts = envelope.response?.candidates?.[0]?.content?.parts ?? [];
+  return parts.map((part) => part.text ?? '').join('');
+}
+
+export interface CodeAssistLanguageModelOptions {
+  accessToken: string;
+  projectId: string | undefined;
+  modelId: string;
+}
+
+export class CodeAssistLanguageModel implements LanguageModelV4 {
+  readonly specificationVersion = 'v4' as const;
+  readonly provider = 'google-code-assist';
+  readonly modelId: string;
+  readonly supportedUrls = {};
+
+  private readonly accessToken: string;
+  private readonly projectId: string | undefined;
+
+  constructor(options: CodeAssistLanguageModelOptions) {
+    this.accessToken = options.accessToken;
+    this.projectId = options.projectId;
+    this.modelId = options.modelId;
+  }
+
+  private buildRequestBody(options: LanguageModelV4CallOptions, project: string): unknown {
+    const { system, turns } = flattenPrompt(options.prompt);
+    return {
+      model: this.modelId,
+      project,
+      user_prompt_id: crypto.randomUUID(),
+      request: {
+        ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
+        contents: turns.map((turn) => ({
+          role: turn.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: turn.text }],
+        })),
+        ...(options.maxOutputTokens || options.temperature !== undefined
+          ? {
+              generationConfig: {
+                ...(options.maxOutputTokens ? { maxOutputTokens: options.maxOutputTokens } : {}),
+                ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
+              },
+            }
+          : {}),
+      },
+    };
+  }
+
+  async doGenerate(options: LanguageModelV4CallOptions) {
+    const project = await ensureCodeAssistProject(this.accessToken, this.projectId);
+    const res = await fetch(`${GOOGLE_OAUTH.codeAssistBaseUrl}:generateContent`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${this.accessToken}` },
+      body: JSON.stringify(this.buildRequestBody(options, project)),
+      signal: options.abortSignal ?? null,
+    });
+    if (!res.ok) throw new Error(`Code Assist generateContent failed: ${res.status} ${await res.text()}`);
+    const envelope = (await res.json()) as CodeAssistGenerateEnvelope;
+    const text = extractCandidateText(envelope);
+    const content: LanguageModelV4Content[] = text ? [{ type: 'text', text }] : [];
+    return {
+      content,
+      finishReason: { unified: 'stop' as const, raw: envelope.response?.candidates?.[0]?.finishReason },
+      usage: nullUsage(),
+      warnings: [],
+    };
+  }
+
+  async doStream(options: LanguageModelV4CallOptions) {
+    const project = await ensureCodeAssistProject(this.accessToken, this.projectId);
+    const res = await fetch(`${GOOGLE_OAUTH.codeAssistBaseUrl}:streamGenerateContent?alt=sse`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${this.accessToken}` },
+      body: JSON.stringify(this.buildRequestBody(options, project)),
+      signal: options.abortSignal ?? null,
+    });
+    if (!res.ok || !res.body) {
+      throw new Error(`Code Assist streamGenerateContent failed: ${res.status} ${await res.text()}`);
+    }
+    const body = res.body;
+
+    const stream = new ReadableStream<LanguageModelV4StreamPart>({
+      async start(controller) {
+        controller.enqueue({ type: 'stream-start', warnings: [] });
+        controller.enqueue({ type: 'text-start', id: '0' });
+        let sawText = false;
+        try {
+          for await (const event of parseSseJsonStream(body)) {
+            const text = extractCandidateText(event as CodeAssistGenerateEnvelope);
+            if (text) {
+              sawText = true;
+              controller.enqueue({ type: 'text-delta', id: '0', delta: text });
+            }
+          }
+          controller.enqueue({ type: 'text-end', id: '0' });
+          controller.enqueue({
+            type: 'finish',
+            finishReason: { unified: sawText ? 'stop' : 'other', raw: undefined },
+            usage: nullUsage(),
+          });
+        } catch (err) {
+          controller.enqueue({ type: 'error', error: err instanceof Error ? err.message : String(err) });
+        } finally {
+          controller.close();
+        }
+      },
+    });
+
+    return { stream };
+  }
 }

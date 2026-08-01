@@ -13,6 +13,7 @@
   "dependencies": {
     "@agent-dashboard/shared": "0.0.0",
     "@ai-sdk/anthropic": "^4.0.27",
+    "@ai-sdk/provider": "^4.0.4",
     "@ai-sdk/google": "^4.0.31",
     "@ai-sdk/openai": "^4.0.27",
     "@ai-sdk/openai-compatible": "^3.0.20",

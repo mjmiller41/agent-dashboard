@@ -1,21 +1,27 @@
 // Provider descriptors (PLAN.md §6). The web wizard renders from this list;
-// routes/providers.ts drives OAuth flows and credential storage against it.
+// routes/providers.ts drives OAuth flows and credential storage against it;
+// routes/chat.ts (Phase 4) drives `aiSdkFactory` for POST /api/chat's
+// streamText call.
 //
-// PLAN.md §6's `ProviderDescriptor` type includes an `aiSdkFactory` field for
-// wiring a full AI SDK `LanguageModel` (used by /api/chat's streamText).
-// That's explicitly Phase 4 scope (streaming chat) — implementing it for the
-// two custom adapters (Google Code Assist, OpenAI Codex backend) would mean
-// satisfying the full `LanguageModelV2` interface for no benefit yet. Phase
-// 3 only needs a live "Test" call and model listing (see the build brief),
-// so descriptors expose `test`/`listModels` instead; `aiSdkFactory` lands in
-// Phase 4 once /api/chat needs real model instances. Logged in DECISIONS.md.
+// `aiSdkFactory` reuses the exact client-construction pattern each
+// provider's `test()` already uses (createAnthropic/createOpenAI/
+// createGoogleGenerativeAI/createOpenAICompatible), per the Phase 4 build
+// brief's explicit instruction not to reinvent that. It takes a `model` id
+// (not part of PLAN.md's abstract type sketch, which only shows `(cred) =>
+// ...`) because a concrete LanguageModel instance needs both the credential
+// AND the model id the user picked in the Assistant panel — logged in
+// DECISIONS.md "Phase 4".
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createOpenAI } from '@ai-sdk/openai';
-import { generateText } from 'ai';
-import { codeAssistListModels, codeAssistTest } from './adapters/google-code-assist.ts';
-import { codexListModels, codexResponsesTest } from './adapters/openai-codex.ts';
+import { generateText, type LanguageModel } from 'ai';
+import {
+  codeAssistListModels,
+  codeAssistTest,
+  CodeAssistLanguageModel,
+} from './adapters/google-code-assist.ts';
+import { codexListModels, codexResponsesTest, CodexBackendLanguageModel } from './adapters/openai-codex.ts';
 import type { CredentialStore, StoredCredential } from './credentials.ts';
 import {
   ANTHROPIC_OAUTH,
@@ -101,6 +107,9 @@ export interface ProviderDescriptor {
   recommended?: boolean;
   test: (cred: StoredCredential, store: CredentialStore) => Promise<ProviderTestResult>;
   listModels: (cred: StoredCredential, store: CredentialStore) => Promise<ModelInfo[]>;
+  /** Builds a real AI SDK `LanguageModel` for `model` from this connection
+   *  (PLAN.md §6 / §11 Phase 4). Used by routes/chat.ts's streamText call. */
+  aiSdkFactory: (cred: StoredCredential, model: string, store: CredentialStore) => Promise<LanguageModel>;
 }
 
 const TEST_PROMPT = 'Reply with the single word: ok';
@@ -337,6 +346,101 @@ async function customListModels(cred: StoredCredential): Promise<ModelInfo[]> {
   return (body.data ?? []).map((m) => ({ id: m.id }));
 }
 
+// --- aiSdkFactory implementations (Phase 4) --------------------------------
+// Each one reuses the same client-construction call already used by that
+// provider's test() above; only the return value differs (a bound
+// LanguageModel for `model` instead of a one-off generateText() call).
+
+async function openrouterAiSdkFactory(cred: StoredCredential, model: string): Promise<LanguageModel> {
+  const provider = createOpenAICompatible({
+    name: 'openrouter',
+    baseURL: OPENROUTER_OAUTH.baseUrl,
+    ...(cred.apiKey ? { apiKey: cred.apiKey } : {}),
+  });
+  return provider.chatModel(model);
+}
+
+async function anthropicAiSdkFactory(cred: StoredCredential, model: string): Promise<LanguageModel> {
+  if (cred.method === 'api-key' && cred.apiKey) {
+    return createAnthropic({ apiKey: cred.apiKey })(model);
+  }
+  if (cred.method === 'oauth' && cred.accessToken) {
+    // OAuth tokens need Authorization: Bearer + anthropic-beta and MUST NOT
+    // send x-api-key — `authToken` (not `apiKey`) is @ai-sdk/anthropic's
+    // supported way to do that (see anthropicTest's doc comment above).
+    return createAnthropic({
+      authToken: cred.accessToken,
+      headers: { 'anthropic-beta': ANTHROPIC_OAUTH.anthropicBeta },
+    })(model);
+  }
+  throw new Error('anthropic: no usable credential to build a model from');
+}
+
+async function openaiAiSdkFactory(cred: StoredCredential, model: string): Promise<LanguageModel> {
+  if (cred.apiKey) {
+    return createOpenAI({ apiKey: cred.apiKey, ...(cred.baseUrl ? { baseURL: cred.baseUrl } : {}) })(model);
+  }
+  if (cred.method === 'oauth' && cred.accessToken) {
+    const accountId = (cred.extra as { accountId?: string } | undefined)?.accountId;
+    return new CodexBackendLanguageModel({ accessToken: cred.accessToken, accountId, modelId: model });
+  }
+  throw new Error('openai: no usable credential to build a model from');
+}
+
+async function googleAiSdkFactory(cred: StoredCredential, model: string): Promise<LanguageModel> {
+  if (cred.method === 'api-key' && cred.apiKey) {
+    return createGoogleGenerativeAI({ apiKey: cred.apiKey })(model);
+  }
+  if (cred.method === 'oauth' && cred.accessToken) {
+    const projectId = (cred.extra as { projectId?: string } | undefined)?.projectId;
+    return new CodeAssistLanguageModel({ accessToken: cred.accessToken, projectId, modelId: model });
+  }
+  throw new Error('google: no usable credential to build a model from');
+}
+
+async function copilotAiSdkFactory(
+  cred: StoredCredential,
+  model: string,
+  store: CredentialStore,
+): Promise<LanguageModel> {
+  const { token, apiBaseUrl } = await getFreshCopilotToken('github-copilot', store, cred);
+  // copilotChatHeaders() includes authorization/content-type, which
+  // createOpenAICompatible's own apiKey/content-type handling already sets —
+  // drop them from the extra headers so they aren't set twice.
+  const allHeaders = copilotChatHeaders(token);
+  const extraHeaders: Record<string, string> = {};
+  for (const [key, value] of Object.entries(allHeaders)) {
+    if (key !== 'authorization' && key !== 'content-type') extraHeaders[key] = value;
+  }
+  const provider = createOpenAICompatible({
+    name: 'copilot',
+    baseURL: apiBaseUrl,
+    apiKey: token,
+    headers: extraHeaders,
+  });
+  return provider.chatModel(model);
+}
+
+async function ollamaAiSdkFactory(cred: StoredCredential, model: string): Promise<LanguageModel> {
+  const baseUrl = (cred.baseUrl || OLLAMA_DEFAULT_BASE).replace(/\/$/, '');
+  const provider = createOpenAICompatible({
+    name: 'ollama',
+    baseURL: `${baseUrl}/v1`,
+    apiKey: cred.apiKey || 'ollama',
+  });
+  return provider.chatModel(model);
+}
+
+async function customAiSdkFactory(cred: StoredCredential, model: string): Promise<LanguageModel> {
+  if (!cred.baseUrl) throw new Error('custom: base URL is required');
+  const provider = createOpenAICompatible({
+    name: 'custom',
+    baseURL: cred.baseUrl,
+    ...(cred.apiKey ? { apiKey: cred.apiKey } : {}),
+  });
+  return provider.chatModel(model);
+}
+
 // ---------------------------------------------------------------------------
 
 export const PROVIDERS: ProviderDescriptor[] = [
@@ -365,6 +469,7 @@ export const PROVIDERS: ProviderDescriptor[] = [
     },
     test: (cred) => openrouterTest(cred),
     listModels: (cred) => openrouterListModels(cred),
+    aiSdkFactory: (cred, model) => openrouterAiSdkFactory(cred, model),
   },
   {
     id: 'anthropic',
@@ -395,6 +500,7 @@ export const PROVIDERS: ProviderDescriptor[] = [
     },
     test: (cred) => anthropicTest(cred),
     listModels: (cred) => anthropicListModels(cred),
+    aiSdkFactory: (cred, model) => anthropicAiSdkFactory(cred, model),
   },
   {
     id: 'openai',
@@ -430,6 +536,7 @@ export const PROVIDERS: ProviderDescriptor[] = [
     },
     test: (cred) => openaiProviderTest(cred),
     listModels: (cred) => openaiListModels(cred),
+    aiSdkFactory: (cred, model) => openaiAiSdkFactory(cred, model),
   },
   {
     id: 'google',
@@ -461,6 +568,7 @@ export const PROVIDERS: ProviderDescriptor[] = [
     },
     test: (cred) => googleTest(cred),
     listModels: (cred) => googleListModels(cred),
+    aiSdkFactory: (cred, model) => googleAiSdkFactory(cred, model),
   },
   {
     id: 'github-copilot',
@@ -485,6 +593,7 @@ export const PROVIDERS: ProviderDescriptor[] = [
     },
     test: (cred, store) => copilotTest(cred, store),
     listModels: (cred, store) => copilotListModels(cred, store),
+    aiSdkFactory: (cred, model, store) => copilotAiSdkFactory(cred, model, store),
   },
   {
     id: 'ollama',
@@ -499,6 +608,7 @@ export const PROVIDERS: ProviderDescriptor[] = [
     },
     test: (cred) => ollamaTest(cred),
     listModels: (cred) => ollamaListModels(cred),
+    aiSdkFactory: (cred, model) => ollamaAiSdkFactory(cred, model),
   },
   {
     id: 'custom',
@@ -512,6 +622,7 @@ export const PROVIDERS: ProviderDescriptor[] = [
     },
     test: (cred) => customTest(cred),
     listModels: (cred) => customListModels(cred),
+    aiSdkFactory: (cred, model) => customAiSdkFactory(cred, model),
   },
 ];
 

@@ -7,7 +7,6 @@ import type { Context } from 'hono';
 import type { CredentialSecret, CredentialStore, StoredCredential } from '../providers/credentials.ts';
 import { maskSecret } from '../providers/credentials.ts';
 import {
-  coalescedRefresh,
   codePasteFlows,
   completePkceFlow,
   createPkceChallenge,
@@ -21,11 +20,10 @@ import {
   pollDeviceCode,
   startFixedPortListener,
 } from '../providers/oauth.ts';
+import { ensureFreshCredential } from '../providers/credential-refresh.ts';
 import { findProvider, PROVIDERS, type ProviderDescriptor } from '../providers/registry.ts';
 import type { SettingsStore } from '../providers/settings.ts';
 import type { WorkspaceWatcher } from '../watch.ts';
-
-const EXPIRY_SKEW_MS = 60_000;
 
 function providerSummary(descriptor: ProviderDescriptor) {
   return {
@@ -59,20 +57,6 @@ function maskCredential(cred: StoredCredential | null): {
     connectedAt: cred.connectedAt,
     ...(secret ? { maskedKey: maskSecret(secret) } : {}),
   };
-}
-
-async function ensureFreshCredential(
-  descriptor: ProviderDescriptor,
-  store: CredentialStore,
-  cred: StoredCredential,
-): Promise<StoredCredential> {
-  if (cred.method !== 'oauth' || !cred.refreshToken || !cred.expiresAt) return cred;
-  if (cred.expiresAt - Date.now() > EXPIRY_SKEW_MS) return cred;
-  const refresh = descriptor.oauth && 'refresh' in descriptor.oauth ? descriptor.oauth.refresh : undefined;
-  if (!refresh) return cred;
-  const refreshed = await coalescedRefresh(descriptor.id, () => refresh(cred));
-  await store.update(descriptor.id, () => refreshed);
-  return { ...refreshed, method: cred.method, connectedAt: cred.connectedAt };
 }
 
 function handleError(c: Context, err: unknown): Response {
