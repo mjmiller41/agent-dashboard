@@ -102,3 +102,48 @@ test('service worker precaches the app shell in Cache Storage', async ({ page })
   expect(precachedPaths.some((p) => p.startsWith('/assets/') && p.endsWith('.js'))).toBe(true);
   expect(precachedPaths.some((p) => p.startsWith('/pwa/') && p.endsWith('.png'))).toBe(true);
 });
+
+test('service worker does not hijack /api navigations (OAuth redirect callbacks)', async ({
+  page,
+  context,
+}) => {
+  // Regression guard for #16: "Gemini/OpenRouter sign-in loops back to the
+  // Agents page and never connects."
+  //
+  // workbox registers its SPA navigation fallback
+  // (`NavigationRoute(createHandlerBoundToURL('index.html'))`) BEFORE the
+  // runtimeCaching rules, and a Router matches in registration order. Without
+  // `navigateFallbackDenylist`, every *navigation* to our origin — including
+  // an OAuth provider redirecting the browser to
+  // /api/providers/oauth/callback?code=... — was answered from the precache
+  // with index.html. The server never saw the callback; the user just watched
+  // the SPA boot to its default route (Agents). The NetworkOnly rules for
+  // OAuth routes did not help, because navigations never reached them.
+  //
+  // This only ever broke redirect-based flows, which is why device-code
+  // (Copilot), code-paste (Anthropic) and the separate-port listener (OpenAI)
+  // all kept working while the two pkce-loopback providers failed.
+  //
+  // Note this is only observable in a SW-*controlled* page: curl bypasses the
+  // service worker entirely, and a page's first load is never controlled — so
+  // the reload below is load-bearing, not incidental.
+  await page.goto('/');
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller))).toBe(true);
+
+  // Navigate exactly the way a provider's redirect does: a top-level
+  // navigation to the callback route, in a page under the SW's scope.
+  const callbackPage = await context.newPage();
+  await callbackPage.goto('/api/providers/oauth/callback?flow=e2e-regression&code=e2e-regression');
+
+  // The server owns this route, so we must get the server's response. The
+  // flow id is fake, so the *correct* answer is its rendered failure page.
+  const body = await callbackPage.evaluate(() => document.body.innerText);
+  expect(body).toContain('Sign-in failed');
+  expect(body).toContain('no pending OAuth flow');
+
+  // And specifically NOT the SPA shell being served in its place.
+  expect(body).not.toContain('Loading workspace');
+  await callbackPage.close();
+});

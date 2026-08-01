@@ -1852,3 +1852,82 @@ covers the buildinfo-without-dist case directly.
 
 Note: `GET /agents` returning 404 is correct, not a regression — the app is
 hash-routed (`/#/agents`), so `/` is the only server-side document route.
+
+## Post-ship hotfix (#16, resolved): the service worker was eating OAuth callbacks
+
+The reported symptom — "Gemini/OpenRouter sign-in loops back to the Agents
+page, no connection made" — was **Phase 6's service worker**, not the OAuth
+code, and not the popup handling I hardened on the first pass.
+
+### Root cause
+
+`vite-plugin-pwa`'s `generateSW` emits, in this order:
+
+```js
+registerRoute(new NavigationRoute(createHandlerBoundToURL('index.html')))
+registerRoute(/^\/api\/providers\/(?:[^/]+\/)?oauth\//, new NetworkOnly, 'GET')
+...
+```
+
+A workbox `Router` matches in **registration order**, and the navigation
+fallback carried no denylist. So every top-level navigation to our own
+origin — including the provider redirecting the browser to
+`/api/providers/oauth/callback?code=...` — was answered **from the precache
+with `index.html`**. The server never received the callback; the SPA simply
+booted at its default route, Agents.
+
+The existing `NetworkOnly` rules for OAuth routes did not help, because they
+are registered _after_ the navigation route and navigations never reached
+them. They looked like protection and were dead code for this case.
+
+This exactly predicts the observed provider matrix, which is what confirms it
+rather than merely fitting it:
+
+| Provider   | Flow            | Navigates to our origin?        | Result |
+| ---------- | --------------- | ------------------------------- | ------ |
+| Copilot    | device-code     | no                              | worked |
+| Anthropic  | pkce-code-paste | no                              | worked |
+| OpenAI     | pkce-fixed-port | separate port, outside SW scope | worked |
+| Google     | pkce-loopback   | **yes**                         | broken |
+| OpenRouter | pkce-loopback   | **yes**                         | broken |
+
+### Why the first investigation missed it
+
+Both tools used to "verify" the callback route were blind to it by
+construction:
+
+- `curl` **bypasses service workers entirely**, so the route always looked
+  correct.
+- The Playwright repro used a fresh context, and **a page's first load is
+  never SW-controlled** — the exact fact already written up in the Phase 6
+  notes, applied to the offline test but not carried over here.
+
+The bug is only observable in a _controlled_ page, i.e. the second visit
+onward — which is precisely the state a real user is always in and a fresh
+test never is. Reproducing it required explicitly awaiting
+`serviceWorker.ready`, reloading, and asserting `serviceWorker.controller`
+before navigating.
+
+Lesson worth keeping: "I couldn't reproduce it" was evidence about the
+harness, not about the product. The three green checks (curl, fresh
+Playwright, unit tests) were consistent with each other _and_ all wrong,
+because they shared one blind spot.
+
+### Fix
+
+`navigateFallbackDenylist: [/^\/api\//]` in the workbox config. Navigations to
+`/api/*` now go to the network. Only navigations are affected — `fetch`/XHR
+never used the navigation fallback, which is why the rest of the app behaved
+normally throughout.
+
+Verified in a real SW-controlled browser: before, the callback URL rendered
+the SPA shell ("Loading workspace…"); after, it renders the server's own
+callback page. A prod e2e regression test covers it and was confirmed to
+**fail** with the denylist removed (`NavigationRoute` emitted without a
+denylist) and pass with it — not a vacuous assertion.
+
+The popup/gesture hardening from the earlier pass is still worth keeping
+(synchronous `window.open`, blocked-popup fallback link, visible waiting
+state, real callback page), but it was **not** the cause. The real callback
+page turned out to be load-bearing for diagnosis: it's what made the
+difference between "SPA shell" and "server response" observable at all.

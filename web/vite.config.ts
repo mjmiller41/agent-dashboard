@@ -47,6 +47,25 @@ export default defineConfig({
         // output glob, vite-plugin-pwa's default `generateSW` behavior (not
         // hand-rolled manifest globbing, per PLAN.md §9).
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
+        // CRITICAL: keep the SPA navigation fallback away from /api/*.
+        //
+        // workbox registers `NavigationRoute(createHandlerBoundToURL('index.html'))`
+        // BEFORE the runtimeCaching rules below, and a Router matches in
+        // registration order — so without this denylist *every* navigation
+        // request, including an OAuth provider redirecting the browser to
+        // /api/providers/oauth/callback?code=..., is answered from the
+        // precache with index.html. The server never sees the callback, and
+        // the user just watches the SPA boot to its default route. That is
+        // exactly the "sign-in loops back to the Agents page" bug (#16).
+        //
+        // The NetworkOnly rules below do NOT save you: they're registered
+        // after the navigation route, so they never get consulted for
+        // navigations. This denylist is what makes them reachable.
+        //
+        // Only affects navigations — fetch()/XHR calls to /api/* were never
+        // routed through the navigation fallback, which is why the app worked
+        // normally and only the redirect-based OAuth flows broke.
+        navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
           // NetworkOnly: OAuth routes, streaming chat, and the SSE stream —
           // none of these should ever be served stale/cached.
