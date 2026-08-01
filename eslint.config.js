@@ -23,6 +23,14 @@ export default tseslint.config(
       globals: globals.node,
     },
   },
+  // e2e/: Playwright specs + config run under Node, not a bundler (PLAN.md
+  // §2 "E2E: Playwright", §11 Phase 5).
+  {
+    files: ['e2e/**/*.ts'],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
   // Web workspace: React + browser globals
   {
     files: ['web/**/*.{ts,tsx}'],
