@@ -801,20 +801,20 @@ needing a status the schema doesn't have.
 
 ### Deviations
 
-- **Docs panel: file creation writes the file to disk *before* selecting/mounting a viewer for it**,
+- **Docs panel: file creation writes the file to disk _before_ selecting/mounting a viewer for it**,
   rather than mounting `DocViewer` bound to an as-yet-unsaved path and letting a "file not found"
   response drive a special new-file edit mode. The first implementation did the latter (matching the
   brief's suggestion that `useWorkspaceFile` already handles raw text generically — true, and still
-  the approach for view/edit/rename/delete of *existing* docs) — but a brand-new path's initial GET
+  the approach for view/edit/rename/delete of _existing_ docs) — but a brand-new path's initial GET
   genuinely 404s, and Chromium logs failed resource loads to the console automatically; combined with
   React 18 StrictMode's intentional double-invocation of effects in dev (`main.tsx` wraps `<App>` in
-  `<React.StrictMode>`), that produced *two* console errors per file creation, breaking the
+  `<React.StrictMode>`), that produced _two_ console errors per file creation, breaking the
   zero-console-errors assertion every other e2e spec in this suite relies on. Found by actually
   running `npm run e2e`, not by inspection (guardrail #7) — the unit/lint/typecheck suites had no
   way to catch this since it's a live-browser-only symptom. Fixed by having `DocsPanel`'s create form
   write the new file directly through the zustand store's `writeFile` primitive (the exact function
   `useWorkspaceFile.save()` itself calls — not a raw fetch, still within the "one data hook" spirit
-  of guardrail #3) *before* setting `selectedPath`, so `DocViewer` never subscribes to a path that
+  of guardrail #3) _before_ setting `selectedPath`, so `DocViewer` never subscribes to a path that
   doesn't exist yet. Simpler in the end than the not-found special-case it replaced: `DocViewer` lost
   its `isNew`/`onCreated` branch entirely.
 - **`useWorkspaceFile` gained a `remove(): Promise<void>` method, and the underlying zustand store
@@ -825,7 +825,7 @@ needing a status the schema doesn't have.
   directly — see below) needed exactly this, so the hook/store were extended rather than having
   `DocViewer` reach for a raw `fetch()` DELETE.
 - **Doc rename is implemented by calling the zustand store's `writeFile` action directly** (for the
-  *new* path) **combined with the hook's own extended `remove()`** (for the *old* path), rather than
+  _new_ path) **combined with the hook's own extended `remove()`** (for the _old_ path), rather than
   purely through one `useWorkspaceFile(path, ...)` instance. A rename is fundamentally a two-path
   operation and `useWorkspaceFile` is deliberately bound to one fixed path per call (React hooks can't
   be instantiated dynamically per event); `useWorkspaceStore((s) => s.writeFile)` is the literal
@@ -840,7 +840,7 @@ needing a status the schema doesn't have.
   consistency but could reasonably diverge from later). Same precedent as Phase 4's
   `useConnectedProviders.ts` deliberately duplicating a slice of `useProviders.ts`.
 - **The Sprints drag handlers only reorder/reclassify on `onDragEnd`, not `onDragOver`** — there's no
-  live cross-column reordering *while* dragging (the standard dnd-kit "Multiple Containers" example
+  live cross-column reordering _while_ dragging (the standard dnd-kit "Multiple Containers" example
   updates local state on every `onDragOver` so cards visibly shuffle mid-drag). Given the actual
   acceptance bar (§11: "drag-drop... demonstrated in tests" — a real drop lands the right
   status/order in `sprints.json`), computing the full destination arrangement once on drop and
@@ -874,7 +874,7 @@ needing a status the schema doesn't have.
   ephemeral component state, not persisted anywhere — it's UI chrome, not workspace data, so
   PLAN.md §12 guardrail 2 ("file-first is sacred") doesn't apply to it, same as the Sprints panel's
   backlog-collapsed toggle.
-- Sprints panel's `handleDragEnd` recomputes *every* status group's `order` field sequentially
+- Sprints panel's `handleDragEnd` recomputes _every_ status group's `order` field sequentially
   (0, 1, 2, …) on every drop, not just the two groups actually touched — simpler to reason about
   and verify (guaranteed no duplicate/gap order values ever), and cheap at 14 tasks; not something
   that would scale to a huge board, but PLAN.md's example workspace only has 14 tasks and nothing in
@@ -896,7 +896,7 @@ needing a status the schema doesn't have.
   browser console errors across every run. The stale `./workspace/` runtime directory was removed
   before each run so the dev server re-seeded fresh from `workspace.example/` each time (same
   precaution part 1's DECISIONS.md entry recorded); one harmless artifact was observed and cleaned up
-  between runs — `workspace/docs/e2e-temp/` is left as an *empty directory* after the Docs spec's
+  between runs — `workspace/docs/e2e-temp/` is left as an _empty directory_ after the Docs spec's
   final `Delete` step, because `Workspace.deleteFile()` (Phase 1) only removes the file itself, not
   now-empty parent directories it created via `mkdir(recursive: true)` on write. Not a data
   correctness issue (the file itself is genuinely gone, `listTree()` only lists files so the empty
