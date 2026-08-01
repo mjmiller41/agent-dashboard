@@ -11,6 +11,12 @@ const BASE_URL = `http://localhost:${PORT}`;
 
 export default defineConfig({
   testDir: '.',
+  // pwa.spec.ts needs a real production build (vite-plugin-pwa's
+  // manifest/service worker don't exist in Vite dev mode) and runs only via
+  // its own e2e/playwright.prod.config.ts (`npm run e2e:prod`) — excluded
+  // here so this dev-mode config's `npm run e2e` doesn't also pick it up
+  // and fail against a server with no manifest link at all.
+  testIgnore: /pwa\.spec\.ts$/,
   // Keep generated artifacts under e2e/ (gitignored there), not the repo
   // root, regardless of the cwd `playwright test` is invoked from.
   outputDir: path.join(REPO_ROOT, 'e2e', 'test-results'),
