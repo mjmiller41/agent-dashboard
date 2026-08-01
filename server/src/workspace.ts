@@ -107,11 +107,17 @@ export class Workspace {
     this.root = path.resolve(root);
   }
 
-  /** If the workspace root doesn't exist yet, seed it from workspace.example/. */
-  async ensureInitialized(exampleDir: string = DEFAULT_EXAMPLE_DIR): Promise<void> {
-    if (existsSync(this.root)) return;
+  /**
+   * If the workspace root doesn't exist yet, seed it from workspace.example/.
+   * Returns whether this call actually seeded it (PLAN.md §10: "logs a
+   * welcome message with the URL" on that first run — index.ts uses this
+   * return value to decide whether to print it).
+   */
+  async ensureInitialized(exampleDir: string = DEFAULT_EXAMPLE_DIR): Promise<boolean> {
+    if (existsSync(this.root)) return false;
     await mkdir(path.dirname(this.root), { recursive: true });
     await cp(exampleDir, this.root, { recursive: true });
+    return true;
   }
 
   /**

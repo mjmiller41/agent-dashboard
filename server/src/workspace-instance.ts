@@ -11,10 +11,16 @@ export const watcher = new WorkspaceWatcher(workspace.root);
 
 let initialized = false;
 
-/** Seed ./workspace from workspace.example/ on first run, then start watching. */
-export async function initWorkspace(): Promise<void> {
-  if (initialized) return;
-  await workspace.ensureInitialized();
+/**
+ * Seed ./workspace from workspace.example/ on first run, then start
+ * watching. Returns whether this call actually seeded the workspace (i.e.
+ * this was a first run) so index.ts can log the PLAN.md §10 welcome message
+ * only then, not on every subsequent boot.
+ */
+export async function initWorkspace(): Promise<boolean> {
+  if (initialized) return false;
+  const seeded = await workspace.ensureInitialized();
   watcher.start();
   initialized = true;
+  return seeded;
 }

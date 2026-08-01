@@ -13,13 +13,16 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "build": "npm run build --workspaces --if-present",
+    "start": "node server/dist/index.js",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "npm run test --workspaces --if-present",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm run test",
-    "e2e": "playwright test --config e2e/playwright.config.ts"
+    "e2e": "playwright test --config e2e/playwright.config.ts",
+    "e2e:prod": "playwright test --config e2e/playwright.prod.config.ts",
+    "check:bundle-size": "node scripts/check-bundle-size.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
