@@ -299,3 +299,162 @@ Key-exchange body must include `code_challenge_method` alongside `code`/`code_ve
 4. Chat needs a fuller header set: `Editor-Plugin-Version`, `X-GitHub-Api-Version`, `X-Initiator`, alongside `Editor-Version`/`Copilot-Integration-Id`.
 5. Current OSS implementations (opencode, Zed) actually skip the internal-token exchange entirely and send the raw `gho_` token straight to `api.githubcopilot.com` — a viable, simpler fallback worth considering.
    Device-flow mechanics and VS Code client id otherwise confirmed against GitHub's official docs (doc path moved to `building-oauth-apps`, not `building-github-apps`).
+
+## Phase 3 — Provider system
+
+### Deviations
+
+- **`aiSdkFactory` (PLAN.md §6's `ProviderDescriptor` field) was not implemented; descriptors
+  expose `test`/`listModels` instead.** Wiring a real AI SDK `LanguageModel` for the two custom
+  adapters (Google Code Assist, OpenAI Codex backend) means satisfying the full `LanguageModelV2`
+  interface (`doGenerate`/`doStream`/`supportedUrls`/etc.) — real value only once `/api/chat`
+  (Phase 4, streaming chat) exists to call it. The build brief explicitly scoped Phase 3 to "a live
+  Test call and model listing... not full streaming chat," so `registry.ts`'s `ProviderDescriptor`
+  has `test(cred, store)` and `listModels(cred, store)` instead. `aiSdkFactory` lands in Phase 4.
+- **Two extra routes not in PLAN.md's §5 list**: `GET /api/providers/settings` and
+  `POST /api/providers/settings/consent`. §6a requires persisting first-party consent-modal
+  acceptance in `~/.agent-dashboard/settings.json`, but the browser has no filesystem access to
+  that path — a server route is the only way to fulfill the requirement. Smallest addition that
+  satisfies it (guardrail #11).
+- **GitHub Copilot is not marked `firstParty: true`**, unlike Anthropic/OpenAI/Google. PLAN.md's
+  §6 provider table explicitly labels only those three as "First-party ... sign-in" flows; Copilot's
+  row describes device flow with a _sanctioned_ bring-your-own-client-id path as primary and the
+  well-known VS Code client id as a documented fallback (not a vendor-CLI-credential-reuse pattern
+  the same way as the other three). The wizard still surfaces attribution info for the fallback
+  client id (issue #13's UX note) but doesn't gate it behind the full consent modal. Logged as a
+  judgment call per guardrail #11 — reasonable readers could argue either way.
+- **The `pkce-loopback` variant (OpenRouter, Google) uses a `flow` query param embedded in the
+  redirect URI we control, not the OAuth `state` param, to correlate a callback with its pending
+  flow.** OpenRouter's redirect never echoes `state` back (confirmed in issue #9's research), so
+  keying the shared `/api/providers/oauth/callback` route purely on `state` would break that
+  provider. `state` is still generated, sent, and validated when a provider _does_ echo it back
+  (Google) for defense-in-depth; the flow id in the callback path is the actual correlation key for
+  all pkce-loopback providers uniformly. Found and fixed via live testing (the first version only
+  added `?flow=` to Google's redirect_uri, not OpenRouter's callback_url — an unnecessary asymmetry
+  that meant OpenRouter would 404 on every real callback until fixed).
+- **`server/src/providers/oauth.ts` error classes use explicit field assignment in the constructor
+  body instead of TypeScript parameter-property shorthand** (`constructor(x: T) { this.x = x; }`
+  rather than `constructor(readonly x: T)`). Node's built-in type-stripping (used by `node
+server/src/index.ts` / `node --watch`, per the Phase 0 convention already established) doesn't
+  support parameter properties — `tsc --noEmit` accepted the shorthand silently, but the app crashed
+  at actual runtime with `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`. Caught by live-booting the server
+  (guardrail #7), not by typecheck/lint/tests, which all passed first. Fixed in both occurrences
+  (`OAuthPortInUseError`, `GoogleValidationRequiredError`).
+- **Codex backend (OpenAI oauth mode b) and Google Code Assist (oauth) model lists are curated
+  static lists, not fetched from a live endpoint.** Neither the ChatGPT Codex backend nor the Code
+  Assist API has a documented model-listing endpoint (confirmed absent in issues #11/#12's
+  research); OpenRouter/Anthropic/OpenAI(api-key)/Google(api-key)/Copilot/Ollama/Custom all use
+  their real listing endpoints.
+
+### Deferred (explicitly out of Phase 3 scope, or pushed to Phase 4)
+
+- Full AI SDK `LanguageModelV2` wiring for the two custom adapters (see deviation above) — Phase 4.
+- Anthropic's undocumented `x-anthropic-billing-header` workaround (issue #10's research note) —
+  only worth adding if a real OAuth-authenticated `/v1/messages` call is seen to 400 with a spurious
+  "out of usage" error in practice; not implemented speculatively.
+- OpenAI's 1457 fallback port if 1455 is busy (codex-rs has it; opencode's simpler fixed-1455
+  approach was chosen per issue #11's explicit recommendation) — a clear `OAuthPortInUseError` is
+  surfaced instead, per PLAN.md §6a's own instruction ("fail with a clear message if the port is
+  busy").
+- Zed/opencode's "skip the token exchange, send the raw `gho_` token directly" Copilot shortcut
+  (issue #13, item 5) — the two-step exchange (the more standard, entitlement-aware path) is what's
+  implemented; the shortcut is noted as a fallback worth knowing about, not built.
+
+### Notes (not deviations, just choices made where PLAN.md left room)
+
+- Ollama's `apiKey` spec is marked `optional: true` — `POST /api/providers/ollama/apikey` accepts an
+  empty `key` and stores just `{baseUrl}` (or no baseUrl, defaulting to `localhost:11434`), matching
+  §6's "none (URL only)" auth description while reusing the same api-key credential-store/route
+  machinery as every other provider rather than a bespoke no-auth code path.
+- `GET /api/providers` decrypts and re-masks each connected credential per request (`store.get`)
+  rather than reading `store.list()`'s metadata-only summary. Caught this the hard way: an initial
+  version used `list()`, which meant `maskedKey` was silently always `undefined` for every connected
+  provider — passed the API-key round-trip test until a `maskedKey`-specific assertion was added.
+- `generateText` calls used for the API-key "Test" path are all invoked with `maxRetries: 0`. The AI
+  SDK's default retry/backoff (built for real chat calls) made a live test against an unreachable
+  endpoint take 5+ seconds and blew past the test suite's default timeout — a live "Test" click
+  should fail fast, not silently retry for several seconds first.
+- The consent modal's vendor-CLI name ("Claude Code" / "Codex CLI" / "Gemini CLI") is a small
+  hardcoded lookup in `web/src/panels/providers/ConsentModal.tsx`, not sent by the server — it's
+  presentation-only copy, not connection state.
+- Model picker in the connected-provider drawer view is a plain `<select>` populated from
+  `listModels`; nothing yet persists the chosen default model anywhere (Phase 4's chat endpoint is
+  what will need a "default model" concept to consume).
+
+### Live verification results (guardrail #7)
+
+Ran with real network access; results below are from actually executing each flow/route, not
+inspection. Server booted via `node server/src/index.ts` against a temp `AGENT_DASHBOARD_HOME` /
+`WORKSPACE_DIR`; web verified via a throwaway Playwright script against the Vite dev server
+(deleted before the final commit, per the build brief).
+
+- **Server boot + registry**: `GET /api/providers` returns all 7 descriptors, `connected: false`,
+  no secret fields in the JSON — verified.
+- **Credential store**: fake-key round trip (`POST /api/providers/custom/apikey` with
+  `baseUrl: http://localhost:11434/v1`) → encrypted correctly on disk (`credentials.json`/`keyfile`
+  both mode `0600`, ciphertext contains no plaintext secret), `DELETE` removes it, `GET
+/api/providers` masks the key — verified.
+- **Ollama (local, no account needed)**: `ollama serve` was already installed
+  (`~/.local/bin/ollama`) but not running; started it for the duration of testing (stopped
+  afterward). Fully live-verified end-to-end: reachability test against the real local daemon
+  (`GET /api/tags`, 3 real models: `qwen3:4b`, `qwen3:14b`, `nomic-embed-text:latest`), real model
+  list returned through the route, and a real `generateText` call through
+  `@ai-sdk/openai-compatible` against Ollama's OpenAI-compatible endpoint via the **Custom
+  OpenAI-compatible** descriptor (proves the "Test" call path works end-to-end against a live
+  model, not just reachability).
+- **Anthropic (API-key path)**: `POST /api/providers/anthropic/apikey` with a syntactically-valid
+  but fake key hit the real `api.anthropic.com` and correctly reported the real API's error
+  (`"invalid x-api-key"`) — the connect/test/report-failure/disconnect round trip is fully verified;
+  the _OAuth_ flow itself is **not testable — no Claude Pro/Max account available in this
+  environment.** `POST /api/providers/anthropic/oauth/start` was verified to build a well-formed
+  authorize URL (correct client id, all 6 scopes, PKCE challenge, state) and register a pending
+  code-paste flow, but nothing beyond that could be exercised live.
+- **OpenAI (OAuth)**: **not testable — no ChatGPT account available.** `oauth/start` was verified to
+  really bind the fixed port 1455 listener (confirmed via `ss -ltnp`), build a correct authorize URL
+  matching issue #11's full param set, and correctly reject a second concurrent start attempt with
+  `OAuthPortInUseError` (409) while the first listener was still bound — the plumbing works; the
+  actual sign-in and token exchange could not be exercised.
+- **Google (OAuth)**: **not testable — no Google account exercised through this flow (policy risk
+  noted in PLAN.md/DECISIONS.md's research section discouraged testing this live without a
+  disposable account).** `oauth/start` verified to build a correct authorize URL (client id, scopes,
+  PKCE, `access_type=offline`, embedded `flow` id) and register a pending flow; a deliberately wrong
+  `state` on the callback was verified to be rejected with a 400 `OAuthStateMismatchError`.
+- **GitHub Copilot (device flow)**: **partially live-tested against the real GitHub API** — `POST
+/api/providers/github-copilot/oauth/start` (using the fallback VS Code-family client id) made a
+  real call to `https://github.com/login/device/code` and got back a real device code, user code,
+  and verification URL. The remaining step (actually visiting `github.com/login/device`, entering
+  the code, and completing the poll-to-token exchange) needs interactive browser login and was
+  **not completed** — recorded as "start verified live, completion not testable without interactive
+  sign-in."
+- **OpenRouter (OAuth)**: **not completed end-to-end** — same reasoning as Google/Anthropic/OpenAI,
+  completing the flow needs a real account with interactive browser consent. `oauth/start` was
+  verified to build a correct authorize URL (no client id/scope per issue #9's confirmed spec, PKCE
+  challenge, `flow` id embedded in `callback_url`) and register the pending flow correctly.
+- **Callback error paths** (all via real HTTP requests against the running server, not mocked):
+  unknown/expired flow id → clean 400 with a readable message (not a crash); state mismatch on a
+  real pending flow → 400 `OAuthStateMismatchError`; port already in use → 409
+  `OAuthPortInUseError`. All three behave identically to their mocked-HTTP unit test counterparts.
+- **Web UI** (Playwright, throwaway script, deleted before commit): Providers tab reachable from the
+  tab strip; grid renders all 7 cards with correct name/badges; clicking a first-party provider and
+  clicking "Connect" shows the consent modal with the exact required copy from §6a bullet 1; Cancel
+  correctly aborts without starting an OAuth flow; a fake API key for OpenRouter round-trips through
+  the real credential store and the drawer shows the real API's failure message (`"User not found."`)
+  cleanly; the provider card updates to "Connected" live after save; zero browser console errors
+  across the whole run.
+
+### Testing
+
+- `server/src/providers/credentials.test.ts` — encrypt/decrypt roundtrip, file permissions (0600,
+  both `credentials.json` and `keyfile`), keyfile reuse across store instances (restart-safe),
+  refresh-token rotation via `update()`, concurrent-update serialization, delete/list, masking.
+- `server/src/providers/oauth.test.ts` — PKCE challenge/verifier generation and determinism,
+  `completePkceFlow`'s state-mismatch rejection and one-shot consumption (mocked HTTP throughout),
+  `startFixedPortListener`'s real (non-mocked, localhost-only) socket bind/callback/port-in-use
+  behavior, `pollDeviceCode`'s RFC 8628 backoff (mocked poll function, injectable sleep), and
+  `coalescedRefresh`'s single-in-flight-call guarantee plus per-provider isolation.
+- `server/src/routes/providers.test.ts` — full route-level integration tests (real Hono app, temp
+  credential/settings dirs, mocked-`fetch` device-code start, real `ollama`-shaped api-key round
+  trip against a deliberately-unreachable port): registry listing, API-key connect/test/disconnect,
+  masked-key display, OAuth start for all 4 variants, callback error paths, settings persistence.
+- `npm run check` (typecheck + lint + format + all vitest suites across `shared`/`server`/`web`):
+  **green** — 152 tests total (45 shared + 84 server + 23 web), 0 lint errors, 0 format issues.
