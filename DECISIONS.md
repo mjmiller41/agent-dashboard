@@ -668,3 +668,94 @@ final commit, along with the temp workspace dir, per the build brief).
   to test against for real, per Phase 3's DECISIONS.md — explicitly noted, not silently skipped).
 - `npm run check` (typecheck + lint + format + all vitest suites across `shared`/`server`/`web`):
   **green** — 179 tests total (45 shared + 111 server + 23 web), 0 lint errors, 0 format issues.
+
+## Phase 5 — Panels (part 1: Links, Icons, Agents, foundation)
+
+First of three sequential coder sessions building Phase 5 (PLAN.md §8 order); this run's
+scope was `GET /api/media`, the e2e/Playwright scaffold, and the Links/Icons/Agents panels
+(§8 items 1–3) only. Generations, Docs, Sprints, Crons, Skill Trees, and Flows are explicitly
+out of scope and untouched.
+
+### Deviations
+
+- **`GET /api/media?path=…` calls `Workspace.resolveGuarded()` directly** (already public on
+  `Workspace` from Phase 1) rather than adding a second path-guarding code path — per the brief's
+  explicit instruction to reuse, not reimplement, Phase 1's guard. `workspace.ts` itself is
+  unchanged.
+- **The Icons panel's directory listing (`useIconList.ts`) fetches `GET /api/ws/tree` directly and
+  filters client-side for `icons/*.svg`, bypassing `useWorkspaceFile`.** PLAN.md §12 guardrail 3
+  says every panel reads/writes through the one data hook, but a directory listing isn't a single
+  schema-backed document the hook's `{data, error, save}` contract fits — the same reasoning
+  Phase 3/4 already used for `panels/providers/useProviders.ts` and
+  `panels/assistant/useConnectedProviders.ts` (server-side/non-file state bypasses the hook rather
+  than being forced through it). The build brief explicitly named this as the intended approach
+  after checking `workspace.ts`/`routes/ws.ts` first, rather than adding a new listing endpoint.
+- **`web/vite.config.ts` gained `server.port: 5173` + `strictPort: true`.** Without a fixed,
+  non-fallback port, Playwright's `webServer.url` health check (necessarily a fixed URL) would
+  hang or falsely pass if Vite silently shifted to 5174+ because 5173 was already in use. Small,
+  narrowly-scoped addition to make `npm run e2e` reliable; doesn't change dev-server behavior when
+  the port is actually free (the overwhelmingly common case).
+- **`e2e/playwright.config.ts` sets `outputDir` explicitly to `e2e/test-results`.** Playwright's
+  default `outputDir` is resolved against the *invoking* `cwd`, not the config file's directory —
+  running `playwright test --config e2e/playwright.config.ts` from the repo root (as `npm run e2e`
+  does) would otherwise scatter a top-level `test-results/` outside the `e2e/test-results/` /
+  `e2e/playwright-report/` paths `.gitignore` already anticipates. Found by actually running the
+  suite and checking `git status` afterward (guardrail #7), not by inspection.
+- **`eslint.config.js` gained a new `files: ['e2e/**/*.ts']` block with Node globals**, mirroring
+  the existing `server/shared/scripts` block. Without it, `process`/`__dirname`-adjacent Node
+  globals used by the spec files and `playwright.config.ts` (only the latter was covered by the
+  pre-existing `*.config.{js,mjs,ts}` catch-all) would need per-file suppression.
+
+### Deferred
+
+- Nothing new deferred this run beyond what PLAN.md §11 already scopes to later Phase 5 stages
+  (Generations/Docs/Sprints/Crons/Skill Trees/Flows) or Phase 6 (PWA, bundle-size audit).
+
+### Notes (not deviations, just choices made where the brief left room)
+
+- `GET /api/media` is generic on purpose (any file under the workspace root, MIME by extension via
+  a small hand-rolled lookup table — no new dependency), per the brief's instruction that the
+  Generations panel (a later stage) will reuse it unchanged.
+- Agent-drawer edits always refresh `lastUpdated` to `new Date().toISOString()` on save (matches
+  the schema's `z.iso.datetime({ offset: true })`, which a bare `Z`-suffixed ISO string satisfies)
+  — an edit through the UI is itself an update worth timestamping, consistent with how an external
+  agent editing the file would be expected to behave.
+- Icons panel's "assign to agent" write goes through `useWorkspaceFile('agents.json', ...).save()`
+  with a mutator that maps over the current agents array and patches only the matching agent's
+  `iconId` — never a raw overwrite of the whole file, so it can't race destructively with a
+  concurrent Agents-panel edit or an assistant tool call touching a different agent.
+- Links panel's add/edit forms are plain inline `<form>`s per link/group (no modal) — matches §8
+  item 1's "add/edit/delete inline" literally; the favicon fallback glyph is a small inline `<svg>`
+  chain-link icon (no icon-font/library dependency).
+- Relative-time formatting (`panels/agents/relativeTime.ts`) is fully hand-rolled (`3m ago`,
+  `2h ago`, `in 5m`, `just now` under 10s) — no `Intl.RelativeTimeFormat` abbreviation support was
+  needed since the compact single-letter unit suffixes (`y`/`mo`/`d`/`h`/`m`/`s`) aren't something
+  `Intl` produces directly anyway. `AgentsPanel` re-renders every 30s (a plain `setInterval` tick,
+  no dependency) so labels stay fresh even when nothing on disk changes.
+
+### Live verification results (guardrail #7)
+
+- **`npm run check`**: green — 185 tests total (45 shared + 117 server [111 + 6 new
+  `media.test.ts` cases] + 23 web), 0 lint errors, 0 format issues.
+- **`npm run e2e`** (`playwright test --config e2e/playwright.config.ts`, real Chromium, real
+  `scripts/dev.mjs`-booted server+Vite via Playwright's `webServer`): all 3 specs green, 0 browser
+  console errors across all three. The stale `./workspace/` runtime directory (gitignored, leftover
+  from earlier phases' manual testing) was removed before this run so the dev server re-seeded from
+  the updated `workspace.example/` (which now includes the `icons` tab) — confirmed by re-running
+  after the removal.
+- **Agents panel SSE-update live proof** (the brief's specific ask: edit `agents.json` on disk
+  directly, not through the UI, and confirm the roster updates without reload): `e2e/agents.spec.ts`
+  does exactly this as part of a real Playwright run against the real dev server and logs the
+  measured latency. Two consecutive real runs measured **227ms** and **199ms** from the on-disk
+  `writeFile` call returning to the new text becoming visible in the DOM — both within/next to the
+  PLAN.md §8 item 3 "~200ms" target, and confirmed with zero page reload (no `page.reload()` call
+  anywhere in the test) and zero console errors.
+- **`GET /api/media`**: unit-tested (`server/src/routes/media.test.ts`, 6 cases: valid SVG stream
+  with correct `content-type`, valid binary file with correct `content-type`, missing `path` → 400,
+  path traversal → 403, missing file → 404, directory path → 404) and exercised live through the
+  Icons/Agents panels' real `<img src="/api/media?path=...">` tags during the `npm run e2e` run
+  above (icon tiles and agent-card avatars render real images, not broken-image icons — visually
+  confirmed via Playwright's rendered DOM, not assumed).
+- Confirmed no background processes/listeners were left running after either verification pass
+  (`ss -ltnp` showed neither `:4680` nor `:5173` bound once each Playwright run completed —
+  Playwright's own `webServer` lifecycle management stops the `npm run dev` child it started).
