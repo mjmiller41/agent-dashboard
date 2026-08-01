@@ -915,3 +915,263 @@ needing a status the schema doesn't have.
   the verification passes (`ss -ltnp`, checked after each of the four `npm run e2e` runs and again
   after the final `npm run check`); the runtime `./workspace/` directory was removed before the final
   commit (gitignored, not part of the diff).
+
+## Phase 5 — Panels (part 3: Crons, Skill Trees, Flows — closing slice)
+
+Third and final of three sequential coder sessions building Phase 5 (PLAN.md §8 order); this
+run's scope was the Crons, Skill Trees, and Flows panels (§8 items 7–9) plus `cron-parser`,
+`date-fns`, `@xyflow/react`, `@dagrejs/dagre`, `d3-force`, `d3-zoom` (all pre-sanctioned by §2)
+and three new e2e specs. `workspace.example/config.json` already had `crons`/`skills`/`flows`
+tabs from an earlier phase — no wiring change needed there, only `App.tsx`'s `lazy()` additions
+(and removing its now-dead `PlaceholderPanel` codepath, since every `KNOWN_PANEL_IDS` entry has
+a real component as of this run).
+
+### Scope gaps against §11's literal wording (flagged honestly, not silently built or skipped)
+
+This run's brief ("Your scope this run") explicitly listed only three deliverables — Crons list
+
+- calendar, Skill Trees force graph + click-to-detail, Flows DAG + picker + static status
+  display — and did not include two things PLAN.md §8/§11 also describe for these same panels.
+  Per the coder brief's "you do not decide scope, you execute it," these were **not** built; they're
+  recorded here as real, honest gaps against §11's Phase 5 acceptance line ("Sprints drag-drop,
+  Flows playback, Skills scan, Crons calendar all demonstrated in tests") for the orchestrator's
+  awareness, rather than either silently expanding scope to cover them or silently omitting them
+  from the sweep:
+
+* **`POST /api/scan/skills` (§5) + the Skill Trees "Scan" button (§8 item 8) were not built.**
+  §8 item 8 describes a server-side skill-directory scanner (new `config.json.skillRoots` field,
+  filesystem walk of e.g. `~/.claude/skills`/`~/.pi/agent/skills`/`~/.agents/skills`, SKILL.md
+  frontmatter parsing, merge-not-clobber against manually-added nodes) — a materially larger,
+  environment-dependent feature than the graph-rendering work this run's brief actually scoped
+  ("Force-directed graph of skills.json nodes/edges... Color/group by category... Click a node to
+  see its description/source"), which never mentioned the scan endpoint or button. **§11's "Skills
+  scan... demonstrated in tests" acceptance line is therefore not satisfied** — this is a real gap,
+  not a false claim of completion. The Skill Trees panel itself is otherwise fully built and tested
+  (force simulation, d3-zoom pan/zoom, drag-pinning, click → real detail drawer).
+* **Flows playback (§8 item 9's "transport bar (play/pause/scrub/speed) that replays events by
+  timestamp — animate the active node... and mark edges traversed") was not built.** This run's
+  brief explicitly narrowed the Flows deliverable to a static rendering: "If a flow has a runs
+  array, show the most recent run's step statuses; this is read-only/display-only... do not build
+  any 'run this flow' trigger" — no transport bar, no scrubbing, no timestamp-driven animation.
+  Implemented exactly that narrower scope: `effectiveStepStatus()` derives each node's displayed
+  status from the latest run's most-recent matching event (falling back to the step's own `status`
+  field when there's no run data for it), with `data-status` + a `flow-node--<status>` modifier
+  class on every node, and lightweight edge styling (green "traversed", red-dashed "failed") as a
+  static-display bonus — no interactive controls of any kind. **§11's literal "Flows playback...
+  demonstrated in tests" wording is therefore only partially satisfied** (a fixed snapshot of the
+  latest run's statuses, not scrubbable playback) — flagged the same way as the scan gap above.
+
+Both gaps are self-contained additions with no dependency on anything else in this run — either
+could be picked up as a standalone follow-up without revisiting the Crons/Skill-Trees-minus-scan/
+Flows-minus-playback work this run completed and tested.
+
+### Deviations
+
+- **`d3-selection` (and `@types/d3-selection`) added as an explicit direct `web` dependency**,
+  beyond the four d3/xyflow/dagre/cron-parser/date-fns packages §2 pre-sanctioned by name. Not a
+  new capability: `d3-zoom`'s only documented way to attach its pan/zoom behavior to a real DOM
+  element is via a d3-selection instance's `.call(zoomBehavior)` (`d3-zoom`'s own `package.json`
+  lists `d3-selection` as a hard dependency, not a peer — it's already being installed transitively
+  no matter what). Declaring it explicitly (same phantom-dependency-avoidance rationale as Phase 1's
+  explicit `zod` declaration in `server`'s `package.json`) is the smallest fix; the alternative
+  considered — hand-rolling `addEventListener`-based wiring to avoid the import — would mean
+  reimplementing wheel/drag gesture normalization `d3-zoom` already does internally via
+  `d3-selection`, for no benefit. `select()` is used for exactly one call (`select(svgEl).call(...)`)
+  and never touches node/edge rendering, which stays 100% React-owned per PLAN.md §2's own
+  instruction for this panel.
+- **Skill graph node-drift bug, found and fixed via live browser testing, not caught by any
+  automated check.** The first implementation had nodes occasionally simulate to positions outside
+  the SVG's `viewBox` (charge repulsion with no bounding force can push a node arbitrarily far from
+  center) — `getBoundingClientRect()` still reported a plausible-looking box for such a node
+  (the browser computes it from the transform matrix regardless of SVG clipping), so a Playwright
+  click would time out with "`<main class="app__content">` intercepts pointer events" — the click
+  coordinate really was outside the rendered graphic, invisible due to the SVG's default clipping,
+  even though the reported bounding box looked fine. Root-caused via `elementsFromPoint()` and
+  reading the live DOM's `transform="translate(x,y)"` values directly (found `y≈602` against a
+  `viewBox="0 0 900 560"`, and another node at `y≈-12`) — not visible from reading the force
+  configuration alone. Fixed by clamping every node's `x`/`y` to `[24, WIDTH-24] × [24, HEIGHT-24]`
+  on every simulation tick (and clamping drag-pinned `fx`/`fy` the same way), which is the standard
+  fix for a bounded d3-force layout. This is exactly the kind of defect PLAN.md §12 guardrail #7
+  ("verify by actually running it") exists to catch — it never surfaced through typecheck/lint/unit
+  tests, only through a real click failing in a real browser.
+- **`--color-success` added to `theme.css`, all 4 presets.** No success/"done" semantic color
+  existed before this run (`--color-danger`/`--color-accent`/`--color-text-dim` covered every prior
+  panel's needs); Flows' done-status node border needed one that isn't the accent color (which is
+  already used for "running").
+- **Cron-parser calls (`cronOccurrences.ts`) deliberately use the browser's local timezone
+  throughout — no `utc: true`, no explicit `currentDate` for "now"-relative calls.** Found via live
+  testing: an initial version passed `{ currentDate: startOfDay(day), endDate: endOfDay(day), utc:
+true }` where `startOfDay`/`endOfDay` are date-fns functions that operate in **local** time, while
+  `utc: true` told cron-parser to interpret the cron fields (and the day-of-week check) in UTC —
+  mixing the two silently shifted which calendar day a weekly job's occurrence landed on whenever
+  the local timezone offset wasn't a whole number of hours from UTC or crossed a day boundary
+  (reproduced live: a Monday-9am job on a real local Monday reported no occurrence with `utc:true`
+  mixed with local-time day boundaries). Fixed by dropping `utc: true` everywhere and letting both
+  the day-boundary math (date-fns, local) and the cron evaluation (cron-parser's default, local)
+  agree on the same clock — also arguably the more correct interpretation anyway, since real
+  crontab entries run in the system's local timezone by default (matches PLAN.md's own "local,
+  single-user tool" framing), not UTC.
+- **`FlowsPanel`'s default-flow selection is computed directly during render**
+  (`explicitPath && flows.some(...) ? explicitPath : flows[0]?.path`), not via a `useEffect` that
+  calls `setState` on mount. An initial version used the effect approach; `eslint-plugin-react-hooks`
+  flagged it (`react-hooks/set-state-in-effect`: "calling setState synchronously within an effect
+  can trigger cascading renders") since there's no actual external system to synchronize with here
+  — the derivation is pure data massaging of already-available `flows`/`explicitPath` state, so it
+  belongs directly in the render body per React's own guidance, not in an effect.
+
+### Deferred
+
+- `POST /api/scan/skills`, the Skill Trees "Scan" button, and `config.json`'s `skillRoots` field —
+  see the "Scope gaps" section above. Standalone follow-up work, not blocked by anything in this run.
+- The Flows playback transport bar (play/pause/scrub/speed, timestamp-driven node/edge animation) —
+  see the "Scope gaps" section above. The static "most recent run's statuses" display this run built
+  could be extended into full playback without any rework (the same `effectiveStepStatus`-shaped
+  data, just re-computed per scrub position instead of pinned to the latest run's final state).
+- Skill node manual creation/edit UI (add a node, edit description/source by hand) — never in this
+  run's scope; PLAN.md §8 item 8 only describes the scan-driven and drag-pin interactions.
+- Persisting skill-graph node positions (drag-pin) or flow-canvas node positions back to a workspace
+  file — neither `SkillNode` nor `FlowStep` has an `x`/`y` field in the shared zod schema (checked
+  both schemas directly), so there's nowhere to persist them even if desired; both stay
+  session-local UI state, same as Sprints' backlog-collapsed toggle and Docs' folder-expand state
+  (PLAN.md §12 guardrail 2 doesn't apply to pure UI chrome, per Phase 5 part 2's DECISIONS.md entry
+  making the same call for those two).
+
+### Notes (not deviations, just choices made where the brief left room)
+
+- Crons calendar's hover popover (§8 item 7: "dots + hover popover") is implemented via real
+  `onMouseEnter`/`onMouseLeave` React state, not a pure-CSS `:hover` rule — matches the existing
+  popover convention (`icon-assign-popover`/`assignee-popover`, both click-driven) closely enough to
+  stay consistent, and Playwright's `.hover()` dispatches real mouse events that these handlers
+  respond to identically to a real user, so it's exercised for real in `crons.spec.ts`, not
+  approximated.
+- Skill graph node/edge coloring is keyed directly off each node's raw `category` string field
+  value (hash → HSL hue), not a special-cased "is this a category-type node" check. The shipped
+  example data's category "root" nodes (`cat-research`/`cat-coding`/`cat-writing`) each have
+  `category: "category"` as a self-referential type tag (Phase 1's convention, not a schema-level
+  distinction — `SkillNodeSchema.category` is just `z.string()`), so under a literal
+  category-field-based coloring all three root nodes incidentally share one "meta" hue while each
+  group's skill leaves (whose `category` field points at their parent's id) get their own true
+  group color — defensible and simpler than hardcoding the `"category"` sentinel string into the
+  color logic, and still visibly groups skills by category in the rendered graph (see the live
+  screenshot description in "Live verification results" below).
+- `effectiveStepStatus()` walks a run's `events` array for the given step id and picks the
+  chronologically-last one (ISO `at` strings compare correctly lexicographically since they share
+  the same offset-suffixed format), falling back to the step's own `status` field if the latest run
+  has no events at all for that step — a literal implementation of "show the most recent run's step
+  statuses" rather than relying on coincidence that `FlowStep.status` and the latest run's terminal
+  event already agree in the shipped example data (they do, but the derivation doesn't assume it).
+- `dagreLayout.ts` always re-lays-out every node on load (PLAN.md §8 item 9 says "for any nodes
+  without stored positions" — since neither `FlowStep` nor `FlowEdge` has a position field in the
+  schema at all, _no_ node ever has a stored position, so "every node, every load" and "any nodes
+  without stored positions" are the same behavior here).
+- Flow edge styling (green "traversed" when the source step's effective status is `done`/`running`,
+  red-dashed when it's `failed`) is a small bonus on top of the brief's literal "node status...
+  shown via color/style" ask — kept intentionally lightweight (CSS class + stroke color only, no
+  interaction, no dependency), in the same spirit as PLAN.md's original (superseded, for this run)
+  "mark edges traversed" playback note, without building the playback machinery itself.
+- No new vitest unit tests this run (185 total, unchanged from part 2) — matches the Links/Icons/
+  Agents/Generations/Docs/Sprints panels' own precedent of e2e-only coverage for panel _behavior_;
+  the three new pure-logic helper modules (`describeCronSchedule`, `cronOccurrences`,
+  `effectiveStepStatus`, `dagreLayout`, `colorForCategory`) are exercised indirectly through the
+  e2e specs' assertions on their rendered output (e.g. `crons.spec.ts` asserts the literal
+  "Every 5 minutes"/"Every Monday at 09:00" describe-fn strings; `flows.spec.ts` asserts
+  `effectiveStepStatus`'s output via `data-status`).
+
+### Live verification results (guardrail #7)
+
+Ran with real network access disabled/irrelevant (no provider/OAuth work this run); results below
+are from actually running the server, Vite dev server, and a real Chromium browser together — not
+from inspection. Server/Vite booted via `npm run dev` (both as Playwright's own managed `webServer`
+for the e2e runs, and once manually for interactive throwaway-script verification); a throwaway
+Playwright script (deleted before the final commit, per the established convention) drove the
+manual pass:
+
+- **Crons**: list renders all 5 example jobs with human-readable schedules (`describeCronSchedule`
+  verified live against real strings — "Every 5 minutes", "Every Monday at 09:00", etc.); calendar
+  renders a real month grid with dots on every day (five jobs, several firing daily/hourly);
+  hovering a dotted day shows a real popover naming the actual jobs and times; toggling a checkbox
+  updates `crons.json` on disk and the "disabled" badge appears live. A temporarily-added job with
+  an out-of-range minute field (`"70 3 * * *"` — passes the shared schema's shape-only regex but
+  `cron-parser` rejects it) correctly renders the invalid-schedule warning badge with zero console
+  errors, and the calendar continues to render normally around it.
+- **Skill Trees**: all 12 nodes (3 categories + 9 skills) render as a force-directed graph, grouped
+  visually by category color (confirmed via screenshot: the "Coding" cluster's 5 skill nodes render
+  in a consistent red/pink hue distinct from "Writing"'s gold and "Research"'s purple); clicking a
+  node opens a drawer with that node's real `description`/`source`/`category` text (verified for
+  two different nodes — `skill-tdd` and the manually-authored `skill-watch-n-report`, whose
+  `source: "manual"` value is visibly different from the scanned nodes'); dragging a node with a
+  real `mouse.down()`/`move()`/`up()` sequence moves and pins it at the drop location (confirmed via
+  before/after bounding-box coordinates matching the drag delta); dragging the background pans the
+  view via d3-zoom with no crash. Found and fixed the node-drift/click-target bug described above
+  during this pass.
+- **Flows**: `deploy-pipeline` loads by default with 5 nodes laid out left-to-right by dagre,
+  `Checkout`/`Install deps`/`Run tests`/`Build` shown with `data-status="done"` (green border) and
+  `Deploy` shown with `data-status="failed"` (red border, dashed incoming edge); switching the
+  picker to `research-to-report` swaps in that flow's real 5 steps (`Scope topic` →
+  `Adversarial verify` `data-status="running"` → `Write report`/`Review` still `data-status="pending"`)
+  with zero console errors.
+- **Zero console errors** across every interaction above, confirmed via `page.on('console'
+/'pageerror')` listeners in both the throwaway manual script and the three committed e2e specs.
+- Confirmed no background dev-server/Playwright processes or `:4680`/`:5173` listeners remained
+  after each verification pass (`ss -ltnp` + `ps -ef` checked repeatedly); the runtime `./workspace/`
+  directory was removed before the final commit (gitignored, not part of the diff) — it was also
+  deliberately deleted before three of the four `npm run e2e` verification runs below, to force a
+  fresh reseed from `workspace.example/` rather than reusing a previously-seeded copy.
+
+### `npm run e2e` — run 4 times consecutively (closing-slice thoroughness, more than the "at least 3" ask)
+
+All 9 specs (6 from parts 1–2 + `crons.spec.ts`/`skills.spec.ts`/`flows.spec.ts` from this run)
+green, 0 browser console errors, every run:
+
+1. First run (after removing `./workspace/`, forcing a fresh reseed): **9/9 passed** in 14.7s.
+2. Second run (existing seeded `./workspace/` reused, each spec's own `finally`-block restore
+   already left every fixture file in its original state): **9/9 passed** in 14.6s.
+3. Third run (removed `./workspace/` again, fresh reseed): **9/9 passed** in 14.3s.
+4. Fourth run (removed `./workspace/` again, fresh reseed): **9/9 passed** in 14.6s.
+
+(The two mid-development runs before these four — which surfaced and got fixed the "all 9 failed
+with ENOENT/timeout" issue below — aren't counted toward the "run 3+ times" verification; those
+four consecutive clean runs are.)
+
+**Bug found and fixed during this run's own verification (not a defect in the shipped code) —
+worth recording since it's the same _category_ of mistake Phase 5 part 1's DECISIONS.md entry
+warns future sessions about:** an early full-suite run failed all 9 specs at once (some with
+`ENOENT` reading a fixture file, some with a 30s timeout clicking a tab). Root cause: a `npm run
+dev` process from _earlier, manual_ interactive verification (used to eyeball the new panels in a
+real browser before writing the specs) was still bound to `:4680`/`:5173` when `npm run e2e` ran —
+Playwright's `webServer.reuseExistingServer` (true for local/non-CI runs) correctly detected the
+already-responding server and reused it rather than starting a fresh one, but `./workspace/` had
+been deleted (to force a reseed) _after_ that old server had already done its one-time
+copy-on-startup, so it was never recreated. Fixed by actually killing the stray process tree
+(`kill -9` on the full `dev.mjs` → `vite`/`node --watch` tree, not just the top-level `npm run dev`
+invocation) before each subsequent `npm run e2e` invocation, and confirming via `ss -ltnp`/`ps -ef`
+that both ports were free first. Not a product bug — a verification-process mistake, caught and
+fixed the same way the brief asks products bugs to be (by actually running things, not assuming).
+
+### §11 Phase 5 acceptance sweep (full phase, not just this run's 3 panels)
+
+| #   | Criterion (PLAN.md §11)                                        | Status                 | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| --- | -------------------------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | All routed panels render example data with zero console errors | ✅                     | Every one of the 11 `KNOWN_PANEL_IDS` (agents, flows, skills, crons, generations, docs, links, sprints, icons, providers, assistant) has a real component (`BUILT_PANEL_IDS`/`PlaceholderPanel` distinction removed — confirmed via `grep PlaceholderPanel App.tsx`: no routing references remain). All 9 e2e specs assert `expect(consoleErrors).toEqual([])` after exercising their panel; 4/4 consecutive full-suite runs green this session. |
+| 2   | Playwright suite green                                         | ✅                     | 9/9 specs, 4 consecutive full runs (see above), including 3 with a forced fresh `workspace.example/` reseed.                                                                                                                                                                                                                                                                                                                                     |
+| 3   | Sprints drag-drop demonstrated in tests                        | ✅ (part 2, unchanged) | `e2e/sprints.spec.ts` — real `mouse.down/move/up` drag, asserts `sprints.json` on disk.                                                                                                                                                                                                                                                                                                                                                          |
+| 4   | Flows playback demonstrated in tests                           | ⚠️ partial             | This run built the brief's explicitly-scoped-down version — a static "most recent run's step statuses" display (`data-status` + color, asserted in `e2e/flows.spec.ts`) — not the full play/pause/scrub/speed transport bar PLAN.md §8 item 9 describes. See "Scope gaps" above.                                                                                                                                                                 |
+| 5   | Skills scan demonstrated in tests                              | ❌                     | `POST /api/scan/skills` and the Scan button were not built this run (out of the explicit brief scope — see "Scope gaps" above). The Skill Trees graph/click-to-detail/drag-pin work itself is fully built and tested.                                                                                                                                                                                                                            |
+| 6   | Crons calendar demonstrated in tests                           | ✅                     | `e2e/crons.spec.ts` — real month grid, hover popover, invalid-schedule badge, enabled-toggle disk round trip.                                                                                                                                                                                                                                                                                                                                    |
+
+**Overall Phase 5 status: not fully closeable as-is** — 4 of 6 literal acceptance bullets are met,
+one is partially met (Flows), one is unmet (Skills scan). All three gaps/partials are isolated,
+well-understood, and independently completable without touching anything this run (or parts 1–2)
+already shipped and tested; recommend a short follow-up pass for `/api/scan/skills` + Scan button
+and/or the Flows playback transport bar before marking issue #7 closed, or explicitly re-scoping
+§11's acceptance line if those two features are no longer wanted.
+
+### Testing
+
+- No new vitest unit tests this run (185 total, unchanged from part 2 — see the Notes section
+  above for why).
+- `e2e/crons.spec.ts`, `e2e/skills.spec.ts`, `e2e/flows.spec.ts` — see "Live verification results"
+  and the run log above for what each exercises.
+- `npm run check` (typecheck + lint + format + all vitest suites across `shared`/`server`/`web`):
+  **green** — 185 tests total (45 shared + 117 server + 23 web, unchanged), 0 lint errors, 0 format
+  issues.
