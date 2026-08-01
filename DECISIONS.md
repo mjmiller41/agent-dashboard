@@ -458,3 +458,213 @@ inspection. Server booted via `node server/src/index.ts` against a temp `AGENT_D
   masked-key display, OAuth start for all 4 variants, callback error paths, settings persistence.
 - `npm run check` (typecheck + lint + format + all vitest suites across `shared`/`server`/`web`):
   **green** — 152 tests total (45 shared + 84 server + 23 web), 0 lint errors, 0 format issues.
+
+## Phase 4 — Assistant
+
+### Deviations
+
+- **`aiSdkFactory` takes `(cred, model, store)`, not just `(cred)` as PLAN.md §6's abstract type
+  sketch shows.** A concrete AI SDK `LanguageModel` instance needs both the credential AND the
+  model id the user picked in the Assistant panel's picker — PLAN.md's sketch (`(cred) => ...`)
+  doesn't have anywhere to pass the model id in. Added `model: string` as the factory's second
+  parameter (and `store`, third, only actually used by Copilot's short-lived-token cache, matching
+  `test`/`listModels`'s existing `(cred, store)` shape from Phase 3). Implemented in
+  `server/src/providers/registry.ts`, reusing the exact client-construction call each provider's
+  `test()` already uses (createAnthropic/createOpenAI/createGoogleGenerativeAI/
+  createOpenAICompatible) per the build brief's explicit "don't reinvent it" instruction.
+- **The two custom adapters (Google Code Assist, OpenAI Codex backend) implement AI SDK's
+  `LanguageModelV4` interface, not `LanguageModelV2` as PLAN.md/DECISIONS.md's Phase 3 entry
+  assumed.** The installed `ai`/`@ai-sdk/*` versions (checked `node_modules/ai/package.json`:
+  `7.0.47`; `@ai-sdk/provider`: `4.0.4`) have moved the custom-provider spec to `v4`
+  (`specificationVersion: 'v4'`, `doGenerate`/`doStream`/`supportedUrls`) since PLAN.md §6a was
+  written — exactly the kind of drift PLAN.md §12 guardrail 8 warns about ("check the provider's
+  current docs... before coding it"). Added `@ai-sdk/provider` as an explicit direct dependency of
+  `server` (was only a transitive dep via `ai`) so the two adapter files can import its types
+  directly, without relying on npm hoisting — same phantom-dependency fix as Phase 1's zod
+  declaration. New file `server/src/providers/adapters/text-prompt.ts` holds the logic shared by
+  both adapters (flattening an AI SDK prompt to plain system+turns text, a null-usage helper, and a
+  small `data: {...}` SSE-frame parser used by both `doStream` implementations).
+- **Both custom adapters are text-only — they do not wire AI SDK tool-calling through to the
+  underlying Code Assist / Codex backend APIs**, even though `workspaceTools: true` still attaches
+  tool definitions to the `streamText` call regardless of which provider is selected. The build
+  brief explicitly scoped these two adapters to "they need to support streamText, nothing more,"
+  and neither OAuth account is available to test against in this environment (per Phase 3's
+  DECISIONS.md: "not testable — no account"), so there's no way to verify a tool-calling
+  implementation against the real APIs even if built. If a user connects Google or OpenAI via
+  OAuth and enables workspace tools, the model simply won't be offered/able to call them — a known,
+  documented limitation, not a silent failure (the model just answers in prose). The Ollama/Custom
+  path (used for all live verification below) exercises the real tool-calling loop end-to-end
+  through the standard `@ai-sdk/openai-compatible` provider, which already supports it natively.
+- **`server/src/providers/credential-refresh.ts` is a new file, extracted from
+  `routes/providers.ts`'s previously-inline `ensureFreshCredential`.** `routes/chat.ts` needs the
+  exact same "refresh an OAuth credential if it's near expiry, persist the rotation" logic
+  `routes/providers.ts`'s `/test` and `/models` routes already had inline — duplicating it would
+  create two copies that could drift (the build brief explicitly says to reuse, not duplicate,
+  provider-construction logic elsewhere in this phase, and the same reasoning applies here).
+  `routes/providers.ts` now imports the extracted function; its behavior is unchanged and its
+  existing tests still pass unmodified.
+- **`conversationId` is an additive, optional field in `POST /api/chat`'s request body**, not part
+  of PLAN.md §5's literal `{providerId, model, messages, workspaceTools}` list. PLAN.md §6 requires
+  persisting "last 20 conversations" to `~/.agent-dashboard/chats/`, but nothing in §5's route
+  signature identifies _which_ conversation a given turn belongs to. The client (`useChat.ts`)
+  generates one UUID per chat session and sends it on every turn; the server upserts that
+  conversation's full transcript to disk in `streamText`'s `onFinish` callback. Omitting it is
+  fully backwards compatible (the request is still valid, the turn just isn't persisted to history).
+- **Chat history has no "browse past conversations" UI.** PLAN.md §6 only requires the _data_ be
+  persisted ("keep in memory + persist last 20 conversations"), not a history-browsing feature in
+  the Assistant panel, and §11 Phase 4's acceptance criterion is specifically the tool-call round
+  trip, not a history browser. `server/src/chat/history.ts`'s `ChatHistoryStore` fully implements
+  and unit-tests `save`/`get`/`list`/pruning; only `list`/`get` have no caller yet on the web side.
+  Logged as a deliberate scope cut rather than an oversight — easy to wire a "recent chats" dropdown
+  onto the existing store later without touching its interface.
+- **The system prompt's workspace-schema summary is a new hand-maintained constant
+  (`server/src/chat/system-prompt.ts`), not generated from `shared/src/schemas`.** PLAN.md §6 says
+  "embed a compact version of SCHEMAS.md" — SCHEMAS.md itself doesn't exist yet (its generation
+  pipeline is explicitly Phase 6 scope per §11). The brief for this phase confirmed this reading
+  ("do NOT invent a SCHEMAS.md generation pipeline, that's Phase 6's job"), so this is a deliberate,
+  pre-authorized deviation rather than a judgment call.
+
+### Deferred
+
+- Tool-calling through the two custom (Google Code Assist / OpenAI Codex backend) adapters — see
+  the deviation above. Revisit if/when a real OAuth account for either becomes available to test
+  against, since the request/response shapes for tool calls in the Code Assist and Responses APIs
+  are genuinely different from the OpenAI-chat-completions shape the rest of the system uses.
+- A "recent chats" browsing UI in the Assistant panel (see the chat-history deviation above).
+- Anthropic's undocumented `x-anthropic-billing-header` OAuth workaround (carried over from Phase
+  3's deferred list — still not needed; not revisited this phase).
+
+### Notes (not deviations, just choices made where PLAN.md left room)
+
+- `workspace.example/config.json` gained an `assistant` tab (`{id: 'assistant', panel: 'assistant',
+label: 'Assistant', icon: 'icon-02.svg'}`). Without it, the shipped example workspace has no way
+  to reach the new panel through the tab strip at all — `KNOWN_PANEL_IDS` already listed `assistant`
+  since Phase 2, but no tab in the example data pointed at it. Small, obviously-correct fix rather
+  than a redesign; noted per guardrail 11 since it touches a file from an earlier phase.
+- The five workspace tools (`read_workspace_file`, `write_workspace_file`, `list_workspace`,
+  `update_sprint_task`, `update_agent_status`) all wrap the _same_ `Workspace` singleton instance
+  `routes/ws.ts` uses (`server/src/workspace-instance.ts`), not a second instance — so a tool-driven
+  write gets identical path guarding, schema validation, atomic-write behavior, and (since the
+  shared chokidar watcher watches the same on-disk root) the same debounced SSE `ws-change`
+  broadcast as a UI-driven edit, with zero extra plumbing. Tool errors (unknown path, schema
+  validation failure, missing file) are caught and returned as a small `{error, issues?}` JSON
+  object instead of thrown, so one bad tool call doesn't abort the whole chat turn — the model can
+  read the error and retry with corrected input.
+- `update_sprint_task`/`update_agent_status` are read-modify-write wrappers implemented directly in
+  `chat/tools.ts` (read the file, validate against the shared zod schema, mutate one field, write
+  back) rather than new `Workspace` methods — keeps `workspace.ts` itself unchanged (still just
+  generic read/write/list/delete) while giving the model single-field-edit tools that can't
+  accidentally drop other fields the way a naive `write_workspace_file` patch could.
+- `POST /api/chat` uses `stepCountIs(8)` (AI SDK's multi-step tool-loop stop condition) only when
+  `workspaceTools: true`; a plain text-only conversation has no `stopWhen`/`tools` at all, which
+  keeps the non-tool path's request shape (and its unit tests) simple.
+- The web client (`web/src/panels/assistant/useChat.ts`) hand-parses the `data: {...}\n\n`
+  UI-message SSE protocol directly off the `fetch` response body, rather than depending on
+  `ai`'s React bindings (`ai/react`'s `useChat`). Matches this repo's existing hand-rolled-SSE-client
+  convention (`web/src/sse.ts`) and keeps the panel's rendering (markdown, tool-call rows, its own
+  scrollback) fully custom rather than shaped around a hook designed for a more generic chat UI.
+- `marked` (`^18.0.7`) and `dompurify` (`^3.4.12`) — both already sanctioned by PLAN.md §2's
+  dependency table ("Markdown: marked + DOMPurify") — were not yet installed in `web/package.json`
+  (only referenced in the table, no panel had used them before this phase). Added now; no
+  `@types/dompurify` needed since `dompurify@3.x` ships its own type declarations.
+- `panels/assistant/useConnectedProviders.ts` deliberately duplicates a small slice of
+  `panels/providers/useProviders.ts`'s fetch-`/api/providers`-and-listen-for-`provider-change`
+  logic instead of importing it, per PLAN.md §12 guardrail 10 ("panels must not import from each
+  other"). The duplicated logic is ~30 lines and the two hooks return different shapes (all
+  providers with full connection metadata vs. just the connected ones' id/name for a picker), so
+  there's little to actually share even setting the guardrail aside.
+- The Assistant panel's empty state ("Connect a provider to start") deep-links to the Providers tab
+  by reading `config.json` (via the standard `useWorkspaceFile` hook, per guardrail 3) and finding
+  the tab whose `panel === 'providers'`, falling back to navigating to the literal id `"providers"`
+  if no such tab exists — correct even if a user has renamed/reordered their tabs, since the hash
+  router navigates by tab id, not panel type.
+
+### Live verification results (guardrail #7)
+
+Ran with real network access; results below are from actually executing the server, Ollama, and
+the web app together — not from inspection or mocks. Server booted via `node server/src/index.ts`
+against a temp `WORKSPACE_DIR` (seeded from `workspace.example/`) / `AGENT_DASHBOARD_HOME`; web
+verified via a throwaway Playwright script against the Vite dev server (both deleted before the
+final commit, along with the temp workspace dir, per the build brief).
+
+- **Ollama**: `ollama serve` (`~/.local/bin/ollama`, same binary Phase 3 used) was not running;
+  started it for the duration of testing, confirmed 3 real local models (`qwen3:4b`, `qwen3:14b`,
+  `nomic-embed-text:latest`), stopped it afterward (`pkill -f "ollama serve"`, verified no
+  `ollama`/`llama-server` process or `:11434`/`:4680`/`:5173` listener remained).
+- **Connected via the Custom OpenAI-compatible provider** (`baseUrl: http://localhost:11434/v1`) —
+  chosen over the dedicated Ollama descriptor because both share the identical
+  `createOpenAICompatible(...).chatModel()` `aiSdkFactory` code path, and Custom's `/apikey` route
+  round-trip was already the more direct one to drive from `curl`. `POST
+/api/providers/custom/apikey` returned `connected: true`, a real `test.ok: true` against the live
+  daemon, `modelCount: 3`.
+- **Real tool-call round trip #1 (`update_sprint_task`) — the literal Phase 4 acceptance scenario**:
+  asked `qwen3:4b` (via `POST /api/chat`, `workspaceTools: true`) to "call the update_sprint_task
+  tool right now with taskId 't05' and status 'done'". Observed real `tool-input-available` /
+  `tool-output-available` chunks in the response stream naming `update_sprint_task` with the
+  correct arguments, **and independently confirmed by reading `sprints.json` off disk myself**
+  afterward: task `t05` ("workspace.ts safe read/write") shows `"status": "done"`, all other fields
+  (title, assigneeId, order) unchanged — proving the read-modify-write path preserved the rest of
+  the document.
+- **Real tool-call round trip #2 (`update_agent_status`), with an explicit SSE proof**: with a
+  second `GET /api/events` connection open throughout, asked the model to call
+  `update_agent_status` for `agentId: "researcher"`, `status: "active"`. Observed a real
+  `{"type":"ws-change","path":"agents.json","rev":"8e6b5b31ea7f"}` SSE event fire, **and
+  independently confirmed by reading `agents.json` off disk myself**: the researcher agent's
+  `status` field is now `"active"`. This directly proves the acceptance criterion's second half
+  ("the Sprints data refetches via SSE" — generalized here to whichever workspace file actually
+  changed, since Sprints itself has no rendered panel yet per guardrail scope, Phase 5).
+- **Streaming is genuinely incremental, not one final blob**: a direct (non-UI) fetch against
+  `POST /api/chat` for a short reply captured over 100 individual SSE chunks (reasoning-delta plus
+  text-delta) with real, increasing timestamps spread across ~9 seconds of wall-clock time; the
+  final answer text alone arrived as 5 separate `text-delta` chunks. In the browser (Playwright),
+  the Stop button visibly appeared for the duration of generation and the rendered message updated
+  from the empty-state placeholder to the final text once streaming finished, with zero console
+  errors. **Honest caveat**: `qwen3:4b` spends nearly all of a short reply's generation time in a
+  "thinking"/reasoning phase before emitting any answer text (even with a `/no_think` prompt hint,
+  which only partially suppressed it) — our UI intentionally does not render `reasoning-delta`
+  chunks (out of this phase's scope), so for this specific small local model the _visible_ text in
+  the panel appears in one late, quick burst rather than a slow visible "typewriter" effect, even
+  though the underlying protocol delivery is genuinely incremental (proven directly, above). A
+  larger/faster or non-reasoning model would visibly "type" in the UI; this is a property of the
+  test model, not of the streaming implementation.
+- **Stop button/abort actually cancels generation server-side, not just the UI**: started a
+  deliberately long generation ("write a very long, 2000 word essay..."), read a few streamed
+  chunks, then aborted the client `fetch`'s `AbortController`. Confirmed via `ps -o pid,%cpu,time`
+  on the underlying `ollama` `llama-server` subprocess that its cumulative CPU `TIME` stopped
+  advancing within a few seconds of the client abort (checked twice, 5s apart, with `TIME`
+  unchanged both times while `ELAPSED` kept growing) — i.e. the model genuinely stopped generating,
+  not just stopped being read from. This confirms `POST /api/chat`'s `abortSignal: c.req.raw.signal`
+  wiring (`@hono/node-server` ties the Fetch `Request.signal` to the real HTTP request's
+  abort/close event) does propagate all the way through `streamText` to the underlying provider
+  call.
+- **Web UI** (Playwright, throwaway script, deleted before commit): Assistant tab reachable from the
+  tab strip once `workspace.example/config.json` gained the `assistant` tab entry (see Notes
+  above); provider/model pickers populated with the real connected provider and its 3 real Ollama
+  models; typing a message and clicking Send started real streaming (Stop button appeared, then
+  disappeared once the model finished); the final rendered assistant bubble showed the model's
+  actual reply; zero browser console errors across the whole run.
+
+### Testing
+
+- `server/src/chat/tools.test.ts` — all five tools individually, against a temp `Workspace` (Phase
+  1's `workspace.test.ts` conventions): read/write/list happy paths, the literal "mark task done"
+  scenario with a field-preservation assertion, and structured (non-throwing) errors for unknown
+  paths/task ids/agent ids and schema-invalid writes.
+- `server/src/chat/history.test.ts` — persistence location (`<appDataDir>/chats`, never the
+  workspace), round-trip via `get`/`list`, most-recently-updated-first ordering, the 20-conversation
+  cap pruning the oldest by mtime, and conversation-id filename-safety validation.
+- `server/src/routes/chat.test.ts` — full route-level integration tests (real Hono app, real
+  `Workspace`/`CredentialStore`/`ChatHistoryStore` against temp dirs) with a **local `http` server
+  standing in for an OpenAI-compatible endpoint** (real SSE chunks in the exact shape
+  `@ai-sdk/openai-compatible` expects, read from its own source before writing the mock) driven
+  through the real "custom" provider descriptor's real `aiSdkFactory` — no AI SDK internals are
+  mocked, no real paid API is called. Covers: validation (404 unknown provider, 400 not connected,
+  400 malformed body), incremental streaming (asserts 2 distinct `text-delta` chunks), chat-history
+  persistence on finish, and the full `update_sprint_task` tool-call round trip asserting both the
+  SSE-stream-visible tool-call chunks _and_ the resulting on-disk file change.
+- `server/src/providers/adapters/google-code-assist.test.ts` /
+  `openai-codex.test.ts` — the two custom `LanguageModelV4` adapters' `doGenerate`/`doStream`
+  request-building and response-parsing, with a mocked `fetch` (neither OAuth account is available
+  to test against for real, per Phase 3's DECISIONS.md — explicitly noted, not silently skipped).
+- `npm run check` (typecheck + lint + format + all vitest suites across `shared`/`server`/`web`):
+  **green** — 179 tests total (45 shared + 111 server + 23 web), 0 lint errors, 0 format issues.

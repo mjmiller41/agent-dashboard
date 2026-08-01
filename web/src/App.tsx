@@ -10,6 +10,7 @@ import { SettingsModal } from './components/SettingsModal';
 
 const PlaceholderPanel = lazy(() => import('./panels/PlaceholderPanel'));
 const ProvidersPanel = lazy(() => import('./panels/providers/ProvidersPanel'));
+const AssistantPanel = lazy(() => import('./panels/assistant/AssistantPanel'));
 
 // Panel ids the shell knows how to route to. Real components land in Phase
 // 5 (PLAN.md §8); a tab whose `panel` isn't in this set renders as an error
@@ -138,11 +139,20 @@ export function App() {
           </Suspense>
         )}
 
-        {activeTab && activeTab.panel !== 'providers' && KNOWN_PANEL_IDS.has(activeTab.panel) && (
+        {activeTab && activeTab.panel === 'assistant' && (
           <Suspense fallback={<p>Loading panel…</p>}>
-            <PlaceholderPanel panelId={activeTab.panel} label={activeTab.label} />
+            <AssistantPanel />
           </Suspense>
         )}
+
+        {activeTab &&
+          activeTab.panel !== 'providers' &&
+          activeTab.panel !== 'assistant' &&
+          KNOWN_PANEL_IDS.has(activeTab.panel) && (
+            <Suspense fallback={<p>Loading panel…</p>}>
+              <PlaceholderPanel panelId={activeTab.panel} label={activeTab.label} />
+            </Suspense>
+          )}
       </main>
 
       {quickSwitcherOpen && (
