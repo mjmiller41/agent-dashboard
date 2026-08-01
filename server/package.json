@@ -12,7 +12,12 @@
   },
   "dependencies": {
     "@agent-dashboard/shared": "0.0.0",
+    "@ai-sdk/anthropic": "^4.0.27",
+    "@ai-sdk/google": "^4.0.31",
+    "@ai-sdk/openai": "^4.0.27",
+    "@ai-sdk/openai-compatible": "^3.0.20",
     "@hono/node-server": "2.0.12",
+    "ai": "^7.0.47",
     "chokidar": "^5.0.0",
     "hono": "4.12.33",
     "zod": "^4.4.3"

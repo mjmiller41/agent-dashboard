@@ -1,0 +1,156 @@
+// Google Code Assist API adapter (PLAN.md §6a "custom adapter"). OAuth'd
+// Gemini access does NOT go through the public generativelanguage.googleapis.com
+// API — it goes through the Code Assist API used by gemini-cli, which needs
+// a loadCodeAssist/onboardUser handshake before any :generateContent call.
+// Envelopes ported verbatim from issue #12's research (google-gemini/gemini-cli
+// packages/core/src/code_assist/*). Full streaming chat is Phase 4 — this
+// module only needs to support a live "Test" call and (a static) model list
+// for Phase 3, per the build brief.
+import { GOOGLE_OAUTH } from '../firstparty.ts';
+import type { ModelInfo, ProviderTestResult } from '../types.ts';
+
+export class GoogleValidationRequiredError extends Error {
+  readonly validationUrl: string;
+  constructor(validationUrl: string) {
+    super('Google account requires verification before Code Assist can be used');
+    this.name = 'GoogleValidationRequiredError';
+    this.validationUrl = validationUrl;
+  }
+}
+
+export class GoogleNumericProjectIdError extends Error {
+  constructor() {
+    super('GOOGLE_CLOUD_PROJECT must be the string Project ID, not the numeric Project Number');
+    this.name = 'GoogleNumericProjectIdError';
+  }
+}
+
+interface LoadCodeAssistResponse {
+  currentTier?: { id: string };
+  allowedTiers?: Array<{ id: string; isDefault?: boolean }>;
+  ineligibleTiers?: Array<{ reasonCode: string; reasonMessage?: string; validationUrl?: string }>;
+  cloudaicompanionProject?: string;
+}
+
+interface OnboardOperation {
+  name: string;
+  done?: boolean;
+  response?: { cloudaicompanionProject?: { id: string } };
+}
+
+async function callInternal(accessToken: string, method: string, body: unknown): Promise<unknown> {
+  const res = await fetch(`${GOOGLE_OAUTH.codeAssistBaseUrl}:${method}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Code Assist ${method} failed: ${res.status} ${await res.text()}`);
+  return res.json();
+}
+
+/**
+ * Resolve the `cloudaicompanionProject` id required for every
+ * :generateContent call, onboarding the account if this is the first use
+ * (free-tier: auto-managed project, no user input needed; Workspace/other
+ * tiers: require the caller-supplied `projectId`).
+ */
+export async function ensureCodeAssistProject(accessToken: string, projectId?: string): Promise<string> {
+  if (projectId && /^\d+$/.test(projectId)) throw new GoogleNumericProjectIdError();
+
+  const load = (await callInternal(accessToken, 'loadCodeAssist', {
+    cloudaicompanionProject: projectId,
+    metadata: {
+      ideType: 'IDE_UNSPECIFIED',
+      platform: 'PLATFORM_UNSPECIFIED',
+      pluginType: 'GEMINI',
+      ...(projectId ? { duetProject: projectId } : {}),
+    },
+  })) as LoadCodeAssistResponse;
+
+  if (load.currentTier) {
+    const resolved = load.cloudaicompanionProject ?? projectId;
+    if (!resolved) {
+      throw new Error('account is already onboarded but returned no project id; set GOOGLE_CLOUD_PROJECT');
+    }
+    return resolved;
+  }
+
+  const validationRequired = load.ineligibleTiers?.find((t) => t.reasonCode === 'VALIDATION_REQUIRED');
+  if (validationRequired?.validationUrl)
+    throw new GoogleValidationRequiredError(validationRequired.validationUrl);
+
+  const tier = load.allowedTiers?.find((t) => t.isDefault) ?? load.allowedTiers?.[0];
+  const tierId = tier?.id ?? 'free-tier';
+  const isFree = tierId === 'free-tier';
+  if (!isFree && !projectId) throw new Error('GOOGLE_CLOUD_PROJECT is required for this Google account tier');
+
+  // Setting cloudaicompanionProject on a free-tier onboard request 412s — must be omitted, not null/"".
+  const onboardBody = isFree
+    ? {
+        tierId,
+        metadata: { ideType: 'IDE_UNSPECIFIED', platform: 'PLATFORM_UNSPECIFIED', pluginType: 'GEMINI' },
+      }
+    : {
+        tierId,
+        cloudaicompanionProject: projectId,
+        metadata: {
+          ideType: 'IDE_UNSPECIFIED',
+          platform: 'PLATFORM_UNSPECIFIED',
+          pluginType: 'GEMINI',
+          duetProject: projectId,
+        },
+      };
+
+  let op = (await callInternal(accessToken, 'onboardUser', onboardBody)) as OnboardOperation;
+  const deadline = Date.now() + 60_000;
+  while (!op.done) {
+    if (Date.now() > deadline) throw new Error('Code Assist onboarding timed out');
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    const res = await fetch(`https://cloudcode-pa.googleapis.com/v1internal/${op.name}`, {
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) throw new Error(`onboarding poll failed: ${res.status}`);
+    op = (await res.json()) as OnboardOperation;
+  }
+  const resultProject = op.response?.cloudaicompanionProject?.id;
+  if (!resultProject) throw new Error('onboarding completed without a project id');
+  return resultProject;
+}
+
+const DEFAULT_TEST_MODEL = 'gemini-2.5-flash';
+
+export async function codeAssistTest(accessToken: string, projectId?: string): Promise<ProviderTestResult> {
+  const start = Date.now();
+  try {
+    const project = await ensureCodeAssistProject(accessToken, projectId);
+    const res = await fetch(`${GOOGLE_OAUTH.codeAssistBaseUrl}:generateContent`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({
+        model: DEFAULT_TEST_MODEL,
+        project,
+        user_prompt_id: crypto.randomUUID(),
+        request: { contents: [{ role: 'user', parts: [{ text: 'Reply with the single word: ok' }] }] },
+      }),
+    });
+    const latencyMs = Date.now() - start;
+    if (!res.ok) return { ok: false, latencyMs, message: `${res.status} ${await res.text()}` };
+    return { ok: true, latencyMs };
+  } catch (err) {
+    if (err instanceof GoogleValidationRequiredError) {
+      return { ok: false, message: `${err.message} — ${err.validationUrl}` };
+    }
+    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** The Code Assist API has no documented model-listing endpoint (issue #12) —
+ *  curated static list of the models gemini-cli itself offers, same as the
+ *  OpenAI Codex backend adapter's approach. See DECISIONS.md "Phase 3". */
+export function codeAssistListModels(): ModelInfo[] {
+  return [
+    { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
+    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
+    { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
+  ];
+}
