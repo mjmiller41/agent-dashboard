@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Agent Dashboard mark: a hub node coordinating four agent nodes (PLAN.md
+       section 9, "design a simple geometric logo, do not fetch external art").
+       Colors match theme.css's default 'dark' preset (bg / accent / text
+       custom properties) so the mark reads consistently with the app shell.
+       Full-bleed background keeps this safe as a maskable icon (content sits
+       well inside the ~80%-diameter safe circle OS launchers crop to). -->
+  <rect width="512" height="512" rx="96" fill="#14151a" />
+  <g stroke="#7c5cff" stroke-width="10" stroke-linecap="round">
+    <line x1="256" y1="256" x2="341" y2="171" />
+    <line x1="256" y1="256" x2="171" y2="171" />
+    <line x1="256" y1="256" x2="341" y2="341" />
+    <line x1="256" y1="256" x2="171" y2="341" />
+  </g>
+  <circle cx="341" cy="171" r="34" fill="#7c5cff" />
+  <circle cx="171" cy="171" r="34" fill="#7c5cff" />
+  <circle cx="341" cy="341" r="34" fill="#7c5cff" />
+  <circle cx="171" cy="341" r="34" fill="#7c5cff" />
+  <circle cx="256" cy="256" r="58" fill="#e8e9ee" />
+  <circle cx="256" cy="256" r="58" fill="none" stroke="#7c5cff" stroke-width="8" />
+</svg>

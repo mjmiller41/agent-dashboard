@@ -5,6 +5,7 @@ import { useRoute } from './hooks/useRoute';
 import { navigate } from './router';
 import { ErrorCard } from './components/ErrorCard';
 import { EmptyState } from './components/EmptyState';
+import { OfflineBanner } from './components/OfflineBanner';
 import { QuickSwitcher } from './components/QuickSwitcher';
 import { SettingsModal } from './components/SettingsModal';
 
@@ -101,6 +102,7 @@ export function App() {
 
   return (
     <div className="app">
+      <OfflineBanner />
       <nav className="tab-strip" aria-label="Panels">
         {tabs.map((tab, index) => {
           const isUnknown = !KNOWN_PANEL_IDS.has(tab.panel);

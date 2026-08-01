@@ -50,6 +50,31 @@ export function onProviderChange(listener: ProviderChangeListener): () => void {
   return () => providerChangeListeners.delete(listener);
 }
 
+// Connection status (PLAN.md §9: "Offline/server-down banner"). Starts
+// optimistic (true) since the very first `connect()` call fires its 'open'
+// or 'error' listener within milliseconds of app startup; a fresh
+// subscriber is notified of the current state immediately so a component
+// mounted after the first connect/disconnect still renders the right banner
+// state on its very first render, not just on the next change.
+let sseConnected = true;
+const connectionListeners = new Set<SseConnectionListener>();
+
+function setConnected(value: boolean): void {
+  sseConnected = value;
+  for (const listener of connectionListeners) listener(value);
+}
+
+/**
+ * Subscribe to SSE connection status changes (used by the app shell's
+ * offline banner). Immediately invokes `listener` with the current state,
+ * then again on every change. Returns an unsubscribe function.
+ */
+export function onSseConnectionChange(listener: SseConnectionListener): () => void {
+  connectionListeners.add(listener);
+  listener(sseConnected);
+  return () => connectionListeners.delete(listener);
+}
+
 /**
  * Opens the SSE connection and wires it into the workspace store. Returns a
  * teardown function that closes the connection and cancels any pending
@@ -67,6 +92,7 @@ export function startSse(onConnectionChange?: SseConnectionListener): () => void
     source.addEventListener('open', () => {
       backoffMs = INITIAL_BACKOFF_MS;
       onConnectionChange?.(true);
+      setConnected(true);
     });
 
     source.addEventListener('ws-change', (event) => {
@@ -93,6 +119,7 @@ export function startSse(onConnectionChange?: SseConnectionListener): () => void
 
     source.addEventListener('error', () => {
       onConnectionChange?.(false);
+      setConnected(false);
       source?.close();
       source = null;
       if (stopped) return;
