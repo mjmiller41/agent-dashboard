@@ -7,17 +7,23 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
+    "@agent-dashboard/shared": "0.0.0",
     "react": "18.3.1",
-    "react-dom": "18.3.1"
+    "react-dom": "18.3.1",
+    "zod": "^4.4.3",
+    "zustand": "5.0.14"
   },
   "devDependencies": {
     "@types/node": "24.13.3",
     "@types/react": "18.3.31",
     "@types/react-dom": "18.3.7",
     "@vitejs/plugin-react": "5.0.4",
-    "vite": "6.4.3"
+    "happy-dom": "20.11.1",
+    "vite": "6.4.3",
+    "vitest": "4.1.10"
   }
 }

@@ -187,6 +187,75 @@ providers, assistant, all 10 panels, PWA config. Not started.
   distinction at runtime — it already treats any non-`.json` path as raw
   text and any `.json` path with no registered schema as pass-through JSON.
 
+## Phase 2 — Shell
+
+### Deviations
+
+- **`happy-dom` was added as a `web` devDependency; `@testing-library/react`
+  was deliberately not added.** PLAN.md §2's dependency table doesn't list a
+  DOM-testing library. Router/store/hook unit tests need a DOM environment
+  for vitest (`window`, `location.hash`, `fetch`/`EventSource` mocks), which
+  `happy-dom` provides without pulling in a component-testing framework —
+  narrower than the alternative considered (`@testing-library/react` +
+  `jsdom`), and component behavior is exercised instead via the real
+  Playwright browser check described below, not through component-test
+  mocks. No UI framework or component-testing library was added.
+- **`web/tsconfig.json` picked up a small change** (test-env types wiring
+  for `happy-dom`/vitest globals) alongside the above — not a scope change,
+  just what's needed for `vitest.config.ts` to typecheck.
+
+### Bug found and fixed during verification (not part of the original build)
+
+- The Phase 2 build (done by an earlier session/subagent run) shipped
+  `useRoute()` backed by `useSyncExternalStore(onRouteChange, getCurrentRoute,
+getCurrentRoute)`, where `getCurrentRoute()` parsed `location.hash` fresh
+  on every call and returned a brand-new object literal each time — even
+  when the hash hadn't changed. `useSyncExternalStore` requires `getSnapshot`
+  to return a referentially stable value between renders when nothing
+  changed; violating that crashes the whole app with "Maximum update depth
+  exceeded" the moment a hash-driven re-render feeds back into another
+  `getSnapshot` call (reproduced live via Playwright: clicking a tab crashed
+  `<App>` entirely, verified by the crash disappearing after the fix).
+  Fixed in `web/src/router.ts` by memoizing the parsed `Route` against the
+  raw hash string it was parsed from (`getCurrentRoute` now only re-parses
+  when `window.location.hash` actually differs from the last-seen value).
+  This is the kind of defect §11's "verify by actually running it, not by
+  inspection" guardrail exists to catch — it passed typecheck/lint/unit
+  tests cleanly and only showed up under a real live click-through.
+
+### Deferred
+
+- Quick-switcher (`Ctrl+K`) currently searches tab labels only, not "panels
+  - docs + links" as PLAN.md §7 describes — docs/links panels don't exist
+    until Phase 5, so there's nothing to search yet. Revisit once those panels
+    exist and have real content to index.
+
+### Notes (not deviations, just choices made where PLAN.md left room)
+
+- Tab strip is a top bar (not a sidebar) — either is sanctioned by §7's
+  "sidebar-or-topbar"; topbar keeps more horizontal room for panel content
+  at small viewport widths.
+- Settings/theme picker is a simple modal (opened via a "Theme" button in
+  the tab strip), not a dedicated settings panel — matches §7's "picker in a
+  settings modal" literally.
+- `useWorkspaceFile`'s `save(mutator)` PUTs optimistically (updates the local
+  store immediately, then confirms/corrects via the server response and any
+  follow-on SSE event) rather than waiting for a round trip before updating
+  the UI — chosen for the ~200ms-perceived-latency feel implied by §8's
+  agents-panel SSE demo note, and safe because the server is still the
+  schema-validating source of truth (a rejected PUT rolls the optimistic
+  update back).
+- Real, live proof of the Phase 2 acceptance criterion ("editing
+  `workspace/config.json` on disk live-updates tabs/theme without a page
+  reload") was captured with a one-off Playwright script (run against the
+  real dev server, not committed to the repo — per the build brief's
+  instruction to keep it a throwaway verification aid) that: loaded the app,
+  mutated `config.json` on disk to add a tab and change the theme
+  preset/accent, asserted the DOM updated within 5s with zero reload and zero
+  console errors, then separately added a tab with an unknown `panel` id and
+  confirmed the error-card path renders instead of crashing. All five
+  assertions passed after the router fix above.
+
 ## OAuth research findings (§6a pre-flight, Phase 3 blockers)
 
 Five research tickets (issues #9–#13) verified PLAN.md §6a's first-party OAuth details against current sources. Full request/response shapes are in each closed issue's comments — this is a summary of what changed.

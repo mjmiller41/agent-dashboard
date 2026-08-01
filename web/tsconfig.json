@@ -7,7 +7,7 @@
     "jsx": "react-jsx",
     "useDefineForClassFields": true,
     "allowImportingTsExtensions": true,
-    "types": ["node"],
+    "types": ["node", "vite/client"],
     "noEmit": true,
     "declaration": false
   },

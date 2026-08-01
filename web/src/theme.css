@@ -1,0 +1,68 @@
+/* Theme presets (PLAN.md §7): 4 CSS custom-property sets selected via
+   `document.documentElement.dataset.theme`, plus a user accent color
+   (`--color-accent`) applied separately at runtime from config.json's
+   `theme.accent`. Hand-written, no CSS framework (PLAN.md §12 guardrail 1). */
+
+:root,
+[data-theme='dark'] {
+  --color-bg: #14151a;
+  --color-surface: #1c1e26;
+  --color-surface-alt: #262835;
+  --color-border: #2f3242;
+  --color-text: #e8e9ee;
+  --color-text-dim: #9a9db0;
+  --color-accent: #7c5cff;
+  --color-accent-contrast: #ffffff;
+  --color-danger: #ff6b6b;
+  --color-danger-bg: #3a1f24;
+}
+
+[data-theme='light'] {
+  --color-bg: #f5f6f9;
+  --color-surface: #ffffff;
+  --color-surface-alt: #eceef3;
+  --color-border: #dadde5;
+  --color-text: #1a1c23;
+  --color-text-dim: #5b5f6e;
+  --color-accent: #5b3df0;
+  --color-accent-contrast: #ffffff;
+  --color-danger: #c8302f;
+  --color-danger-bg: #fbe4e4;
+}
+
+[data-theme='midnight'] {
+  --color-bg: #05060a;
+  --color-surface: #0d0f18;
+  --color-surface-alt: #151827;
+  --color-border: #212437;
+  --color-text: #d8daf0;
+  --color-text-dim: #7d81a3;
+  --color-accent: #4f8dff;
+  --color-accent-contrast: #05060a;
+  --color-danger: #ff5c7a;
+  --color-danger-bg: #2b0f18;
+}
+
+[data-theme='terminal-green'] {
+  --color-bg: #050b05;
+  --color-surface: #08130a;
+  --color-surface-alt: #0d1c0f;
+  --color-border: #1d3a1f;
+  --color-text: #5cff8f;
+  --color-text-dim: #2f9c52;
+  --color-accent: #39ff6a;
+  --color-accent-contrast: #041403;
+  --color-danger: #ff5c5c;
+  --color-danger-bg: #2b0808;
+}
+
+:root {
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --radius: 8px;
+}

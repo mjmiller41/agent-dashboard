@@ -1,37 +1,163 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { ConfigSchema, type Tab } from '@agent-dashboard/shared';
+import { useWorkspaceFile } from './hooks/useWorkspaceFile';
+import { useRoute } from './hooks/useRoute';
+import { navigate } from './router';
+import { ErrorCard } from './components/ErrorCard';
+import { EmptyState } from './components/EmptyState';
+import { QuickSwitcher } from './components/QuickSwitcher';
+import { SettingsModal } from './components/SettingsModal';
 
-type HealthState =
-  { status: 'loading' } | { status: 'ok'; body: unknown } | { status: 'error'; message: string };
+const PlaceholderPanel = lazy(() => import('./panels/PlaceholderPanel'));
 
-// Phase 0 placeholder page: proves the Vite dev proxy reaches the Hono
-// server's /api/health route. The real shell (router/store/theme/tabs)
-// lands in Phase 2 (see PLAN.md §7 / §11 Phase 2).
+// Panel ids the shell knows how to route to. Real components land in Phase
+// 5 (PLAN.md §8); a tab whose `panel` isn't in this set renders as an error
+// tab, per PLAN.md §4 ("unknown panel ids render an error tab").
+const KNOWN_PANEL_IDS = new Set([
+  'agents',
+  'flows',
+  'skills',
+  'crons',
+  'generations',
+  'docs',
+  'links',
+  'sprints',
+  'icons',
+  'providers',
+  'assistant',
+]);
+
+const DEFAULT_TABS: Tab[] = [
+  { id: 'agents', panel: 'agents', label: 'Agents', icon: 'icon-01.svg' },
+  { id: 'flows', panel: 'flows', label: 'Flows', icon: 'icon-02.svg' },
+];
+
 export function App() {
-  const [health, setHealth] = useState<HealthState>({ status: 'loading' });
+  const { data: config, error, save } = useWorkspaceFile('config.json', ConfigSchema);
+  const route = useRoute();
+  const [quickSwitcherOpen, setQuickSwitcherOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  const tabs = useMemo(() => config?.tabs ?? [], [config]);
+  const activeTabId = route.panelId ?? tabs[0]?.id ?? null;
+  const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null;
 
   useEffect(() => {
-    const controller = new AbortController();
+    if (!config) return;
+    document.documentElement.dataset.theme = config.theme.preset;
+    document.documentElement.style.setProperty('--color-accent', config.theme.accent);
+    document.title = config.title;
+  }, [config]);
 
-    fetch('/api/health', { signal: controller.signal })
-      .then((res) => res.json())
-      .then((body: unknown) => setHealth({ status: 'ok', body }))
-      .catch((err: unknown) => {
-        if (controller.signal.aborted) return;
-        setHealth({ status: 'error', message: err instanceof Error ? err.message : String(err) });
-      });
+  useEffect(() => {
+    function handleKeydown(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setQuickSwitcherOpen((open) => !open);
+        return;
+      }
+      if (event.key === 'Escape') {
+        setQuickSwitcherOpen(false);
+        setSettingsOpen(false);
+        return;
+      }
+      if (quickSwitcherOpen || settingsOpen) return;
+      if (/^[1-9]$/.test(event.key)) {
+        const target = tabs[Number(event.key) - 1];
+        if (target) navigate(target.id);
+      }
+    }
+    window.addEventListener('keydown', handleKeydown);
+    return () => window.removeEventListener('keydown', handleKeydown);
+  }, [tabs, quickSwitcherOpen, settingsOpen]);
 
-    return () => controller.abort();
-  }, []);
+  if (error) {
+    return (
+      <main className="app app--error">
+        <ErrorCard path={error.path} message={error.message} issues={error.issues} />
+      </main>
+    );
+  }
+
+  if (!config) {
+    return (
+      <main className="app app--loading">
+        <p>Loading workspace…</p>
+      </main>
+    );
+  }
 
   return (
-    <main>
-      <h1>Agent Dashboard</h1>
-      <p>Hello — Phase 0 scaffolding is up.</p>
-      <p>
-        /api/health via dev proxy: {health.status === 'loading' && 'loading…'}
-        {health.status === 'ok' && JSON.stringify(health.body)}
-        {health.status === 'error' && `error: ${health.message}`}
-      </p>
-    </main>
+    <div className="app">
+      <nav className="tab-strip" aria-label="Panels">
+        {tabs.map((tab, index) => {
+          const isUnknown = !KNOWN_PANEL_IDS.has(tab.panel);
+          const classNames = ['tab'];
+          if (tab.id === activeTabId) classNames.push('tab--active');
+          if (isUnknown) classNames.push('tab--error');
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              className={classNames.join(' ')}
+              onClick={() => navigate(tab.id)}
+              title={index < 9 ? `${tab.label} (${index + 1})` : tab.label}
+            >
+              {tab.label}
+              {isUnknown ? ' ⚠' : ''}
+            </button>
+          );
+        })}
+        <button type="button" className="tab tab--settings" onClick={() => setSettingsOpen(true)}>
+          Theme
+        </button>
+      </nav>
+
+      <main className="app__content">
+        {tabs.length === 0 && (
+          <EmptyState
+            message="No tabs configured — config.json's tabs array is empty."
+            actionLabel="Add example tabs"
+            onAction={() => {
+              void save((current) => ({ ...(current ?? config), tabs: DEFAULT_TABS }));
+            }}
+          />
+        )}
+
+        {activeTab && !KNOWN_PANEL_IDS.has(activeTab.panel) && (
+          <ErrorCard
+            path="config.json"
+            message={`Unknown panel id "${activeTab.panel}" for tab "${activeTab.label}"`}
+          />
+        )}
+
+        {activeTab && KNOWN_PANEL_IDS.has(activeTab.panel) && (
+          <Suspense fallback={<p>Loading panel…</p>}>
+            <PlaceholderPanel panelId={activeTab.panel} label={activeTab.label} />
+          </Suspense>
+        )}
+      </main>
+
+      {quickSwitcherOpen && (
+        <QuickSwitcher
+          tabs={tabs}
+          onSelect={(tabId) => {
+            navigate(tabId);
+            setQuickSwitcherOpen(false);
+          }}
+          onClose={() => setQuickSwitcherOpen(false)}
+        />
+      )}
+
+      {settingsOpen && (
+        <SettingsModal
+          theme={config.theme}
+          onChange={(theme) => {
+            void save((current) => ({ ...(current ?? config), theme }));
+          }}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
+    </div>
   );
 }
