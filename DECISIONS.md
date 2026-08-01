@@ -1411,3 +1411,311 @@ against §11's Phase 5 line; issue #7 is closeable as of this session pending or
 - `npm run check` (typecheck + lint + format + all vitest suites across `shared`/`server`/`web`):
   **green** — 196 tests total (45 shared + 128 server [117 + 11 new] + 23 web), 0 lint errors, 0
   format issues.
+
+## Phase 6 — PWA + polish
+
+Final phase (closes issue #8). Scope: `vite-plugin-pwa` config + logo/icons, the offline banner,
+production static serving + a root `start` script, a bundle-size audit, a keyboard-nav sweep,
+`AGENTS.md`/`SCHEMAS.md`/`README.md`, and the production-mode `pwa.spec.ts`. Every prior phase
+(0–5) was already done, tested, and merged before this session started.
+
+### Deviations
+
+- **Icon generation shells out to the system `inkscape` CLI (`scripts/generate-pwa-icons.mjs`),
+  not `@vite-pwa/assets-generator` (the tool the brief named as vite-plugin-pwa's standard
+  workflow) or a `sharp`/`resvg` dependency.** `@vite-pwa/assets-generator` itself depends on
+  `sharp`, a large native-binding image library, for one-time PNG rasterization of a single
+  hand-drawn SVG — a disproportionate dependency addition for what the brief itself calls
+  "the smallest reasonable addition." `inkscape` and ImageMagick (`convert`/`magick`) were both
+  already present on this machine; the script prefers `inkscape` (more faithful SVG rendering) and
+  falls back to ImageMagick if `inkscape` isn't found. No new npm dependency either way. Kept as a
+  permanent, re-runnable repo script (not a one-off) per PLAN.md's own "design a logo in code"
+  framing — re-run it if `web/public/pwa/logo.svg` ever changes.
+- **The two PNG icons are marked `purpose: 'any maskable'` (both roles on one file), not two
+  separate icon entries with different `purpose` values.** The brief's literal wording ("Generate
+  maskable icons at 512x192 — sorry, 512 and 192 (both maskable)") only asked for maskable icons at
+  these two sizes; since the source logo's design already fills the entire square with a solid
+  background (rounded-rect fill, no transparency) — i.e. it already satisfies a maskable icon's
+  "safe zone" requirement — it also renders correctly for `purpose: 'any'` consumers with zero
+  extra assets. Serving one PNG per size with both purposes declared (a pattern several real-world
+  PWAs use) satisfies the literal ask while also covering non-maskable-aware installers, at no
+  extra generation cost.
+- **`vite-plugin-pwa` is a `web` devDependency, not a regular dependency.** It's build tooling
+  (like `@vitejs/plugin-react`, this repo's existing precedent for where Vite plugins live), not
+  something the running app imports at runtime.
+- **Production static serving (`server/src/static.ts`) uses `serveStatic` from
+  `@hono/node-server/serve-static`, added as no new dependency** — it ships inside the
+  `@hono/node-server` package already declared in `server/package.json` since Phase 0; the brief
+  explicitly asked to check for this before adding anything new, and it was already resolvable.
+- **`mountStaticSite(app, distDir?)` takes an optional `distDir` parameter** (defaulting to the
+  real `WEB_DIST_DIR`, computed the same `import.meta.url`-relative way `workspace.ts`'s
+  `resolveWorkspaceRoot`/`REPO_ROOT` already are) so `server/src/static.test.ts` can point it at a
+  temp directory instead of depending on a real `npm run build -w web` having happened first —
+  same reasoning as `routes/media.test.ts`'s temp-workspace convention.
+- **`Workspace.ensureInitialized()` and `initWorkspace()` now return `boolean`** (whether they
+  actually seeded the workspace), not `void`. PLAN.md §10's welcome-message requirement ("logs a
+  welcome message with the URL" on first run) needs `index.ts` to know whether _this_ boot was a
+  first run — the smallest way to plumb that through without new global state is to have the two
+  existing seed-on-first-run functions report back whether they seeded anything. Both call sites'
+  existing tests call them without inspecting the return value, so nothing broke.
+- **Runtime-caching's OAuth `NetworkOnly` rule is one regex
+  (`/^\/api\/providers\/(?:[^/]+\/)?oauth\//`) matching both the shared loopback callback
+  (`/api/providers/oauth/callback`, no `:id` segment) and every per-provider start/paste route
+  (`/api/providers/:id/oauth/...`)**, registered twice (once for `method: 'GET'`, once for
+  `method: 'POST'`) since Workbox's `registerRoute` entries default to matching `GET` only and the
+  two route shapes span both methods (`oauth/callback` is GET, `oauth/start`/`oauth/paste` are
+  POST). Read `server/src/routes/providers.ts` directly to get this exact route list, per the
+  brief's instruction not to guess it.
+
+### Deferred
+
+- The README's provider-setup screenshots section is a clearly marked, honest placeholder — no
+  screenshots were fabricated or described as real. Revisit once the UI is stable enough to be
+  worth capturing.
+- A "browse past chats" UI (carried over from Phase 4's DECISIONS.md — still not built, still not
+  in this phase's scope) and the Phase 3/4 first-party-OAuth items already logged as deferred in
+  earlier phases — untouched this session, not revisited.
+
+### Notes (not deviations, just choices made where the brief left room)
+
+- The logo (`web/public/pwa/logo.svg`) is a small hand-authored geometric mark: a central "hub"
+  circle connected to four "agent" satellite circles by straight lines — a literal multi-agent
+  hub-and-spoke glyph, matching this app's actual identity ("a local-first multi-agent
+  dashboard") rather than a generic abstract shape. Colors are pulled directly from `theme.css`'s
+  default `dark` preset (`--color-bg` / `--color-accent` / `--color-text`), so the installed-app
+  icon and the in-app theme read as the same product.
+- `web/index.html` gained a `<link rel="icon">` pointing at the same source SVG (most modern
+  browsers render SVG favicons directly) and a `<meta name="theme-color">` matching the manifest's
+  `theme_color` — small, standard additions alongside the PWA plugin's own auto-injected
+  `<link rel="manifest">` / registration `<script>`.
+- The offline banner's connection state (`web/src/sse.ts`'s new `onSseConnectionChange` /
+  `web/src/hooks/useSseConnection.ts` / `web/src/components/OfflineBanner.tsx`) starts optimistic
+  (`connected: true`) until the first real `open`/`error` event fires — a fresh page load doesn't
+  flash a banner before the first SSE connection attempt has even had a chance to succeed or fail.
+  `sse.ts`'s existing reconnect-with-backoff (Phase 2) needed no changes; the banner just observes
+  the same state transitions it already produced but that nothing previously consumed.
+- `App.tsx` renders `<OfflineBanner />` as the very first child, above the tab strip, so it's
+  visible regardless of which panel is active — matches PLAN.md §9's "persistent... bar" framing
+  literally (not scoped to one panel).
+- **Keyboard nav gap found by tabbing through the real app (not by code inspection alone), and
+  fixed with one shared hook rather than eight bespoke fixes:** every existing modal-backdrop
+  drawer/popover (`AgentDrawer`, `ProviderDrawer`, `ConsentModal`, `SkillDetailDrawer`,
+  `AssigneePopover`, the Icons panel's inline assign popover) closed only via its own explicit
+  "Close"/"×" button — none closed on Escape, and none trapped Tab focus inside itself (a Tab press
+  could walk focus out into the tab strip behind the open modal). Only `QuickSwitcher` and
+  `SettingsModal` closed on Escape, and only via `App.tsx`'s _global_ `window` keydown handler, not
+  their own — meaning even those two never trapped focus either. Added one new hook,
+  `web/src/hooks/useModalA11y.ts` (focuses the first focusable descendant on mount, keeps Tab/
+  Shift+Tab cycling within the container, Escape calls `onClose` and stops the event from bubbling
+  further so a nested modal-within-a-modal — `ConsentModal` rendered inside `ProviderDrawer` — closes
+  only the topmost one, and restores focus to whatever was focused before opening on unmount), and
+  wired it into all eight components (`IconsPanel`'s inline popover JSX was extracted into a small
+  local `IconAssignPopover` component so it has its own container ref/hook call per open tile,
+  without changing `IconsPanel`'s existing per-tile open/close state shape). The Generations panel's
+  `Lightbox` was **not** touched — it already uses a native `<dialog>` element via `showModal()`,
+  which gets focus-trapping and Escape-to-close from the browser for free.
+- `useModalA11y` mirrors the latest `onClose` callback via a ref (updated every render, read only
+  inside the keydown handler) rather than depending on `onClose` directly in its setup effect — the
+  same "ref mirrors a fresh callback, the effect itself only depends on stable identity" shape
+  `panels/flows/useFlowPlayback.ts` already established in Phase 5 part 4, needed here because most
+  callers pass a fresh inline arrow function for `onClose` on every render; depending on it directly
+  would re-run the whole setup (and re-steal focus) on every parent re-render.
+- `scripts/check-bundle-size.mjs` is kept as a permanent repo tool (`npm run check:bundle-size`),
+  not a one-off — it excludes vite-plugin-pwa's own `sw.js`/`workbox-*.js`/`registerSW.js` from the
+  budgeted total, since those load in the service-worker thread rather than being part of a page's
+  initial JS need, and PLAN.md §2's budget language ("production JS") predates the PWA plugin's
+  existence in this codebase. Both figures (app JS total and SW-artifact total) are printed either
+  way, so nothing is hidden by the exclusion.
+
+### Bundle-size audit (guardrail per PLAN.md §2 / this phase's explicit ask)
+
+Ran `npm run build -w web` after adding `vite-plugin-pwa` (which adds a service worker + Workbox
+runtime to the build output) and then `node scripts/check-bundle-size.mjs`:
+
+- **App JS total (all panel chunks + shared/app-shell chunk, gzipped, excluding SW artifacts):
+  244.59 KB** — **105.41 KB under** the 350 KB budget.
+- Service-worker artifacts (`sw.js` + the Workbox runtime chunk), gzipped: **6.72 KB** — even added
+  to the app total, still 98.69 KB under budget.
+- No further code-splitting was needed; the largest chunks are unchanged from Phase 5's own audit
+  (`FlowsPanel` ~59 KB for `@xyflow/react`+`@dagrejs/dagre`, `CronsPanel` ~39 KB, `marked` ~23 KB as
+  its own shared chunk, `SprintsPanel` ~18 KB for `@dnd-kit/*`) — all already lazy-loaded
+  per-panel from Phase 5, so adding the PWA plugin's own (separately-loaded) service worker script
+  didn't meaningfully move the needle against the budget this phase exists to guard.
+
+### Keeping `npm run check` honest after this phase made `npm run build` routine
+
+**Found and fixed a real latent bug, not just this session's own test-writing:**
+`server/vitest.config.ts` had no `exclude` beyond vitest v4's own default
+(`['**/node_modules/**', '**/.git/**']` — vitest stopped excluding `dist` by default at some point).
+Every earlier phase's `npm run check` happened to run before `server/dist/` existed (a production
+server build wasn't part of any prior phase's workflow), so this was latent and invisible. Phase 6
+makes `npm run build && npm start` a normal, expected local workflow — the first time this session
+ran `npm run check` _after_ a `server` build, `server/dist/**/*.test.js` (the same 16 test files,
+compiled) were picked up **in addition to** their `src/**/*.test.ts` originals, silently doubling
+every count (128 → 256 tests, 16 → 32 files) with all of them still reporting "passed" — an easy
+false-green a less careful run could have missed entirely. Fixed by adding an explicit
+`exclude: ['**/node_modules/**', '**/.git/**', '**/dist/**']`. Caught by actually running
+`npm run check` after a real build (guardrail #7), not by inspection.
+
+### Live verification results (guardrail #7)
+
+All of the following were run for real against a real production build/server, not inferred from
+inspection or mocks.
+
+- **Static serving + `npm start`**: `npm install && npm run build && npm start` (root scripts, as
+  a user would literally run them) → server logs `agent-dashboard server listening on
+http://127.0.0.1:4680`; `curl` confirmed real 200s with correct `content-type` for `GET /`
+  (`text/html`), `GET /manifest.webmanifest` (`application/manifest+json`), `GET /sw.js`
+  (`text/javascript`), `GET /pwa/logo.svg` (`image/svg+xml`), `GET /pwa/pwa-maskable-512x512.png`
+  (`image/png`), and `GET /api/health` (still routed correctly, `application/json`) — all through
+  the _same_ server process, zero separate Vite dev server. `GET /api/ws/tree` still returns real
+  workspace data (confirming the `/api/` guard in `mountStaticSite` never shadows a real API
+  route); a genuinely unmatched path (`/totally-bogus-path.js`) and an unmatched `/api/*` path both
+  correctly 404, rather than either being swallowed by the static handler.
+- **First-run welcome message**: booted the server against a brand-new, not-yet-existing
+  `WORKSPACE_DIR` — real console output: `Welcome to Agent Dashboard!` / `A starter workspace was
+created at <path>` / `Open http://127.0.0.1:4680 to get started.` / a pointer to `AGENTS.md` —
+  then booted it again against the now-existing directory and confirmed the welcome block does
+  **not** repeat (only the plain `listening on...` line prints), proving it's genuinely a
+  first-run-only signal, not printed on every boot.
+- **Keyboard nav**: a throwaway Playwright script (deleted before the final commit, per this
+  repo's established convention) drove real `Tab`/`Escape`/`Control+K` key presses — not
+  programmatic state changes — against the real dev app and confirmed, for all eight modal/
+  drawer/popover components (`QuickSwitcher`, `SettingsModal`, `AgentDrawer`, `ProviderDrawer`,
+  `SkillDetailDrawer`, the Icons panel's assign popover, `AssigneePopover`): focus lands on a real
+  focusable element inside the container the instant it opens (a real `<input>`, or the first real
+  `<button>` — confirmed via `document.activeElement` read back from the page, not assumed), a
+  `Tab` press moves focus to the _next_ element still inside the same container (not out to the
+  tab strip behind it), and `Escape` genuinely removes the component from the DOM (`locator(...)
+.count()` read `0` immediately after, for every one of the eight). Zero console errors across the
+  whole run. Tab-strip buttons were confirmed keyboard-focusable/activatable as real `<button>`
+  elements (unchanged from Phase 2 — verified, not assumed, since a Tab from a blank page landed
+  directly on the first tab button).
+- **PWA installability, for real, against the production build** (`e2e/pwa.spec.ts` via
+  `npm run e2e:prod`, plus additional manual checks beyond what's committed):
+  - Manifest fetched live: `name: "Agent Dashboard"`, `display: "standalone"`, both maskable icons
+    present and independently fetched (both 200, both real PNGs).
+  - A real `ServiceWorkerRegistration` reaches `active` (`navigator.serviceWorker.getRegistrations()`
+    polled from inside the page, not inferred from the injected `<script>` tag's mere presence).
+  - Cache Storage genuinely contains the precached app shell after that registration: `/index.html`,
+    `/manifest.webmanifest`, at least one `/assets/*.js` chunk, and at least one `/pwa/*.png` icon —
+    read directly via `caches.keys()`/`cache.keys()` from inside the page, not asserted from the
+    build log's precache-entry count alone.
+  - Zero console errors on a normal load.
+  - **`context.setOffline(true)` was tried first for the "kill server" scenario and found to make
+    Chromium fail the top-level navigation outright** (`net::ERR_INTERNET_DISCONNECTED`) **before
+    the request ever reaches the service worker's fetch handler**, in this Playwright/Chromium
+    version — reproduced twice, isolated with a throwaway Node+Playwright script outside the
+    committed suite. This is a real tooling limitation of CDP-level network-offline emulation for
+    main-frame navigations, not a defect in this app's service worker (see the next bullet for the
+    proof that the SW itself works correctly once the _real_ server, not the browser's own network
+    stack, is what's down). The committed `pwa.spec.ts` therefore verifies the underlying mechanism
+    (Cache Storage contents) instead of an offline-navigation reload, and documents this limitation
+    inline in the spec's own comments.
+  - **The literal PLAN.md §11 acceptance line — "kill server → reopened installed app shows cached
+    shell + stale-data banner" — was verified manually, for real, and passed:** with the production
+    server running, loaded the page, waited for `navigator.serviceWorker.ready`, reloaded once so
+    the page was genuinely SW-controlled (confirmed via `navigator.serviceWorker.controller`),
+    found the real listening PID via `ss -ltnp`, and `kill -9`'d the actual Node server process
+    (confirmed dead via a second `ss -ltnp` showing no `:4680` listener at all). Reloading the page
+    again afterward returned a real `200` (served entirely from the service worker's cache, since
+    there was no server left to answer), the "Agents" tab rendered from cache, and the
+    "Disconnected — data may be stale. Retrying…" banner appeared once the now-failing `/api/events`
+    SSE connection attempt actually failed. This is real evidence for the literal acceptance line,
+    obtained via a throwaway Node+Playwright script (deleted before the final commit) rather than
+    the committed suite, since reaching into the shared `webServer` process's PID isn't something a
+    portable, repeatable committed spec can safely do without breaking Playwright's own process
+    lifecycle management for that config.
+  - **"Installable in Chrome"**: not clicked through interactively in a real windowed Chrome (no
+    GUI session in this environment) — the closest honest verification available is that every
+    automated installability criterion Chrome itself checks before offering the install prompt
+    passes: valid manifest with `name`/`icons`/`start_url`/`display: standalone`, served over a
+    URL Chrome treats as a secure context (`http://localhost`), and a registered, activated service
+    worker — all independently confirmed above, and also confirmed via Lighthouse's dedicated
+    `installable-manifest` audit (next section). No claim is made about the actual `chrome://apps`
+    install-prompt UI itself having been clicked.
+- **Lighthouse PWA check**: current `npx lighthouse` resolves to the latest published version
+  (13.4.1) — **which no longer has a `pwa` category at all** (`--only-categories=pwa` is rejected
+  outright: "unrecognized category"). This was verified to be a real, version-specific fact, not an
+  environment/sandboxing limitation: diffing `13.4.1`'s `default-config.js` against a deliberately
+  older `11.7.1` install's copy of the same file shows the `pwa` category (and its six automated
+  audits) present in `11.7.1` and entirely absent from `13.4.1` — Lighthouse dropped the scored PWA
+  category in a recent major version. Rather than reporting "not available" and stopping there,
+  re-ran against the real production server using `npx lighthouse@11` specifically **to get a real
+  score against the audits PLAN.md §11 actually asks about** (installability/manifest/SW checks,
+  which haven't changed regardless of Lighthouse's own category-scoring UI churn):
+  - **PWA category score: 1 (100%).**
+  - All six automated audits passed (score `1`): `installable-manifest` ("Web app manifest and
+    service worker meet the installability requirements"), `splash-screen`, `themed-omnibox`,
+    `content-width`, `viewport`, `maskable-icon`.
+  - The remaining three audits (`pwa-cross-browser`, `pwa-page-transitions`, `pwa-each-page-has-url`)
+    are inherently manual-only in Lighthouse itself (`scoreDisplayMode: 'manual'`, `score: null`)
+    regardless of what's tested — not a gap in this app, a permanent property of those three checks.
+  - Honest caveat: the Lighthouse run itself hit its own page-load timeout ("Timed out waiting for
+    page load... Remaining inflight requests: http://localhost:4680/api/events") because the app's
+    SSE connection (`GET /api/events`) is deliberately long-lived and never resolves — Lighthouds's
+    navigation-mode "wait for load" heuristic doesn't know that's expected. It still completed the
+    full audit and produced this report; noted here for transparency, not glossed over.
+- **`npm run e2e:prod`** (the new production-mode config, 2 specs): run **3 times consecutively**,
+  all green every time (~10–12s each), with Playwright's own `webServer` lifecycle cleanly starting
+  and tearing down the production server each time (confirmed via `ss -ltnp` showing no `:4680`
+  listener between runs).
+- **`npm run e2e`** (the existing dev-mode config, now with `pwa.spec.ts` explicitly excluded via
+  `testIgnore` so it isn't picked up against a dev server that has no manifest/SW at all): run
+  **twice consecutively** after this phase's changes (offline banner, the eight keyboard-nav
+  fixes), all **10/10 specs green** both times, zero console errors, including the
+  `agents.spec.ts` SSE-latency measurement (`195`/`201` ms, consistent with every earlier phase's
+  measurements) — proving the new global `<OfflineBanner />` and the eight modals' new
+  `useModalA11y` wiring didn't regress any existing panel behavior.
+- Confirmed no background dev-server/production-server/Playwright/Lighthouse-Chrome processes or
+  `:4680`/`:5173` listeners remained after every verification pass (`ss -ltnp` + `ps -ef`, checked
+  repeatedly through this session, including catching and killing a couple of stray manually-started
+  `npm start`/`node server/dist/index.js` processes left over from interactive debugging of the
+  offline/kill-server scenario before the final test runs).
+
+### Testing
+
+- `server/src/static.test.ts` (5 cases, new) — `mountStaticSite` against a temp directory: returns
+  `false`/mounts nothing when the directory doesn't exist, serves `index.html` at `/` and a real
+  asset with the correct content-type when it does, never shadows an existing `/api/*` route, and
+  404s (rather than falling through to static serving) for an `/api/` path with no matching route.
+- `e2e/pwa.spec.ts` (2 specs, new, production-mode only via `playwright.prod.config.ts`) — manifest
+  validity + icon fetchability, real service-worker registration reaching `active`, zero console
+  errors on load; and a second spec verifying the precached app shell via Cache Storage directly
+  (see "Live verification results" above for why this replaced an offline-navigation-reload
+  assertion).
+- `npm run check` (typecheck + lint + format + all vitest suites across `shared`/`server`/`web`):
+  **green** — **201 tests total (45 shared + 133 server [128 + 5 new] + 23 web)**, 0 lint errors, 0
+  format issues.
+- `npm run e2e` (dev-mode, 10 specs): green, run twice consecutively, see above.
+- `npm run e2e:prod` (production-mode, 2 specs): green, run three times consecutively, see above.
+- `npm run check:bundle-size` (new permanent script, `node scripts/check-bundle-size.mjs`): PASS,
+  244.59 KB app JS total vs. the 350 KB budget.
+
+### §11 acceptance sweep — Phase 6, and the whole project (Phases 0–6)
+
+**Phase 6's own acceptance line** ("`npm run build && npm start` → installable in Chrome; kill
+server → reopened installed app shows cached shell + stale-data banner; Lighthouse PWA pass
+noted"): **met**, with the honest caveats recorded above — "installable in Chrome" is verified via
+every automated installability criterion Chrome itself checks (manifest validity, icons, secure
+context, active service worker, and Lighthouse's own `installable-manifest` audit) rather than an
+interactive `chrome://apps` click (no GUI session available in this environment); "kill server →
+cached shell + stale banner" was verified for real via a real process kill (not simulated); the
+Lighthouse PWA "pass" is a real 100% category score obtained via `lighthouse@11` since the latest
+published Lighthouse version has removed the scored PWA category entirely (a documented,
+version-specific fact, not an excuse).
+
+**Whole-project sweep**: Phase 5's own closing session (part 4, above) already swept and closed all
+six of its acceptance bullets, and Phases 0–4 each recorded their own phase as met (with the
+honestly-labeled OAuth "not testable — no account" exceptions for Anthropic/OpenAI/Google/OpenRouter's
+live sign-in completion, and the Codex-backend/Code-Assist tool-calling limitation, both carried
+forward unchanged since they're properties of not having live accounts to test against in this
+environment, not gaps in what was built). This session did not re-touch anything from Phases 0–5
+beyond what's listed in the Deviations section above (all of which are Phase-6-caused: the
+`ensureInitialized`/`initWorkspace` return-type change for the welcome message, and the
+`server/vitest.config.ts` `exclude` fix). **To the best of this session's verification, every
+PLAN.md §11 acceptance line across Phases 0–6 is now satisfied** — the only asterisks are the ones
+PLAN.md §12 guardrail 7 itself anticipates ("if something can't be verified... say so explicitly"):
+the handful of first-party OAuth completions that need a real, live third-party account this
+environment doesn't have, and this phase's "installable in Chrome"/Lighthouse-version caveats
+above. Nothing was found to be silently broken or silently skipped.

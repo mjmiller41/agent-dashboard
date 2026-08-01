@@ -8,4 +8,5 @@ workspace/
 .env
 .env.local
 e2e/test-results/
+e2e/test-results-prod/
 e2e/playwright-report/
