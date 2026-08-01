@@ -26,6 +26,9 @@ interface WorkspaceStoreState {
    *  (see DECISIONS.md "Phase 2 — Shell" for why: it lets the corresponding SSE ws-change event be
    *  echo-suppressed by comparing revs, avoiding a redundant GET round-trip for our own write). */
   writeFile: (path: string, payload: unknown) => Promise<{ rev: string }>;
+  /** DELETE a path (Phase 5 part 2 addition, for the Docs panel's delete/rename actions — see
+   *  DECISIONS.md "Phase 5 — Panels (part 2)"). Clears the local cache entry for the path on success. */
+  deleteFile: (path: string) => Promise<void>;
   /** Called by sse.ts when a `ws-change` event arrives; refetches the path unless it's an echo of our
    *  own last write (same rev) or nobody is subscribed to it. */
   handleWsChange: (path: string, rev: string) => void;
@@ -106,6 +109,16 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
     const body = (await res.json()) as { rev: string };
     set((state) => setEntry(state, path, { data: payload, rev: body.rev, error: null, loading: false }));
     return body;
+  },
+
+  async deleteFile(path) {
+    const res = await fetch(encodePath(path), { method: 'DELETE' });
+    if (!res.ok) throw new Error(await parseErrorBody(res));
+    set((state) => {
+      const files = new Map(state.files);
+      files.delete(path);
+      return { files };
+    });
   },
 
   handleWsChange(path, rev) {

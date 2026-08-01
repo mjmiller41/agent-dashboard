@@ -24,11 +24,15 @@ export interface UseWorkspaceFileResult<T> {
   /** Reads the current (validated) value, applies `mutator`, and PUTs the result. See store.ts's
    *  writeFile doc comment for the optimistic-update + echo-suppression choice this makes. */
   save: (mutator: (current: T | undefined) => T) => Promise<void>;
+  /** DELETEs this path (Phase 5 part 2 addition — the Docs panel's delete/rename actions need this;
+   *  extending the hook rather than a panel reaching for a raw fetch, per PLAN.md §12 guardrail 3). */
+  remove: () => Promise<void>;
 }
 
 export function useWorkspaceFile<T>(path: string, schema: ZodType<T>): UseWorkspaceFileResult<T> {
   const subscribe = useWorkspaceStore((state) => state.subscribe);
   const writeFile = useWorkspaceStore((state) => state.writeFile);
+  const deleteFile = useWorkspaceStore((state) => state.deleteFile);
   const entry = useWorkspaceStore((state) => state.files.get(path));
 
   useEffect(() => subscribe(path), [path, subscribe]);
@@ -60,5 +64,9 @@ export function useWorkspaceFile<T>(path: string, schema: ZodType<T>): UseWorksp
     [path, parsed.data, writeFile],
   );
 
-  return { data: parsed.data, error: parsed.error, loading: entry?.loading ?? true, save };
+  const remove = useCallback(async () => {
+    await deleteFile(path);
+  }, [path, deleteFile]);
+
+  return { data: parsed.data, error: parsed.error, loading: entry?.loading ?? true, save, remove };
 }

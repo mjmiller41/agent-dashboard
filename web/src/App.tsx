@@ -14,11 +14,23 @@ const AssistantPanel = lazy(() => import('./panels/assistant/AssistantPanel'));
 const LinksPanel = lazy(() => import('./panels/links/LinksPanel'));
 const IconsPanel = lazy(() => import('./panels/icons/IconsPanel'));
 const AgentsPanel = lazy(() => import('./panels/agents/AgentsPanel'));
+const GenerationsPanel = lazy(() => import('./panels/generations/GenerationsPanel'));
+const DocsPanel = lazy(() => import('./panels/docs/DocsPanel'));
+const SprintsPanel = lazy(() => import('./panels/sprints/SprintsPanel'));
 
-// Panel ids with a real component this run (Phase 5 part 1). Everything
+// Panel ids with a real component so far (Phase 5 parts 1 + 2). Everything
 // else in KNOWN_PANEL_IDS still falls through to PlaceholderPanel until
-// parts 2/3 land.
-const BUILT_PANEL_IDS = new Set(['providers', 'assistant', 'links', 'icons', 'agents']);
+// part 3 lands.
+const BUILT_PANEL_IDS = new Set([
+  'providers',
+  'assistant',
+  'links',
+  'icons',
+  'agents',
+  'generations',
+  'docs',
+  'sprints',
+]);
 
 // Panel ids the shell knows how to route to. Real components land in Phase
 // 5 (PLAN.md §8); a tab whose `panel` isn't in this set renders as an error
@@ -168,6 +180,24 @@ export function App() {
         {activeTab && activeTab.panel === 'agents' && (
           <Suspense fallback={<p>Loading panel…</p>}>
             <AgentsPanel />
+          </Suspense>
+        )}
+
+        {activeTab && activeTab.panel === 'generations' && (
+          <Suspense fallback={<p>Loading panel…</p>}>
+            <GenerationsPanel />
+          </Suspense>
+        )}
+
+        {activeTab && activeTab.panel === 'docs' && (
+          <Suspense fallback={<p>Loading panel…</p>}>
+            <DocsPanel />
+          </Suspense>
+        )}
+
+        {activeTab && activeTab.panel === 'sprints' && (
+          <Suspense fallback={<p>Loading panel…</p>}>
+            <SprintsPanel />
           </Suspense>
         )}
 
