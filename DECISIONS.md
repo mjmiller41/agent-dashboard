@@ -774,3 +774,144 @@ out of scope and untouched.
 - Confirmed no background processes/listeners were left running after either verification pass
   (`ss -ltnp` showed neither `:4680` nor `:5173` bound once each Playwright run completed —
   Playwright's own `webServer` lifecycle management stops the `npm run dev` child it started).
+
+## Phase 5 — Panels (part 2: Generations, Docs, Sprints)
+
+Second of three sequential coder sessions building Phase 5 (PLAN.md §8 order); this run's scope
+was the Generations, Docs, and Sprints panels (§8 items 4–6) plus the `@dnd-kit/*` dependency and
+three new e2e specs. Crons, Skill Trees, and Flows are explicitly out of scope and untouched.
+`workspace.example/config.json` already had `generations`/`docs`/`sprints` tabs from an earlier
+phase — no wiring change needed there, only `App.tsx`'s `lazy()`/`BUILT_PANEL_IDS` additions.
+
+### The "4 columns + collapsible backlog rail" reading (explicitly flagged as ambiguous in the brief)
+
+`SprintTaskStatusSchema` (`shared/src/schemas/sprints.ts`) has exactly 4 statuses —
+`backlog | todo | doing | done` — and `workspace.example/sprints.json`'s 14 tasks use all four
+(5 backlog, 3 todo, 2 doing, 4 done). Since there's no 5th status a "rail" could represent
+separately from "4 columns," the two readings PLAN.md's wording could support collapse to the same
+data: **backlog is a real 4th status column, just presented with different chrome** (a narrower,
+collapsible rail styled distinctly via `.kanban-column--rail`/`--collapsed`) rather than a plain
+fixed-width kanban column like todo/doing/done. Implemented as: `KanbanColumn` renders the same way
+for all 4 statuses functionally (droppable + sortable, participates in the same drag-and-drop), but
+`collapsible`/`collapsed` props (only passed for `status="backlog"`) swap its header for a toggle
+button and let `SprintsPanel` hide its task list while keeping the column itself in the DOM. This
+matches both halves of the brief's phrase ("4 columns" — all 4 schema statuses are represented;
+"collapsible backlog rail" — backlog specifically gets the toggle/narrower treatment) without
+needing a status the schema doesn't have.
+
+### Deviations
+
+- **Docs panel: file creation writes the file to disk *before* selecting/mounting a viewer for it**,
+  rather than mounting `DocViewer` bound to an as-yet-unsaved path and letting a "file not found"
+  response drive a special new-file edit mode. The first implementation did the latter (matching the
+  brief's suggestion that `useWorkspaceFile` already handles raw text generically — true, and still
+  the approach for view/edit/rename/delete of *existing* docs) — but a brand-new path's initial GET
+  genuinely 404s, and Chromium logs failed resource loads to the console automatically; combined with
+  React 18 StrictMode's intentional double-invocation of effects in dev (`main.tsx` wraps `<App>` in
+  `<React.StrictMode>`), that produced *two* console errors per file creation, breaking the
+  zero-console-errors assertion every other e2e spec in this suite relies on. Found by actually
+  running `npm run e2e`, not by inspection (guardrail #7) — the unit/lint/typecheck suites had no
+  way to catch this since it's a live-browser-only symptom. Fixed by having `DocsPanel`'s create form
+  write the new file directly through the zustand store's `writeFile` primitive (the exact function
+  `useWorkspaceFile.save()` itself calls — not a raw fetch, still within the "one data hook" spirit
+  of guardrail #3) *before* setting `selectedPath`, so `DocViewer` never subscribes to a path that
+  doesn't exist yet. Simpler in the end than the not-found special-case it replaced: `DocViewer` lost
+  its `isNew`/`onCreated` branch entirely.
+- **`useWorkspaceFile` gained a `remove(): Promise<void>` method, and the underlying zustand store
+  gained a `deleteFile` action** (`web/src/store.ts`, `web/src/hooks/useWorkspaceFile.ts`). Neither
+  existed before this run — no earlier panel needed to delete a file. PLAN.md §12 guardrail 3 says
+  "if a panel seems to need something the hook can't do, extend the hook, don't bypass it"; the Docs
+  panel's delete (and, for the cross-path write half of rename, the store's `writeFile` called
+  directly — see below) needed exactly this, so the hook/store were extended rather than having
+  `DocViewer` reach for a raw `fetch()` DELETE.
+- **Doc rename is implemented by calling the zustand store's `writeFile` action directly** (for the
+  *new* path) **combined with the hook's own extended `remove()`** (for the *old* path), rather than
+  purely through one `useWorkspaceFile(path, ...)` instance. A rename is fundamentally a two-path
+  operation and `useWorkspaceFile` is deliberately bound to one fixed path per call (React hooks can't
+  be instantiated dynamically per event); `useWorkspaceStore((s) => s.writeFile)` is the literal
+  function `useWorkspaceFile.save()` already delegates to, so this reuses the hook's own underlying
+  primitive rather than adding a parallel raw-fetch mechanism — the same reasoning as the delete
+  addition above, just applied to an operation that spans two paths instead of one.
+- **`docs/**/*.md`'s markdown-rendering helper (`web/src/panels/docs/renderMarkdown.ts`) is a
+  deliberate near-duplicate of `panels/assistant/ChatMessage.tsx`'s private `renderMarkdown`
+  function**, not an import from it. PLAN.md §12 guardrail 10 ("panels must not import from each
+  other") forbids the latter; the two call sites also have different needs (chat bubbles want
+  `breaks: true` line-break-sensitive rendering for casual chat text, which the Docs panel keeps for
+  consistency but could reasonably diverge from later). Same precedent as Phase 4's
+  `useConnectedProviders.ts` deliberately duplicating a slice of `useProviders.ts`.
+- **The Sprints drag handlers only reorder/reclassify on `onDragEnd`, not `onDragOver`** — there's no
+  live cross-column reordering *while* dragging (the standard dnd-kit "Multiple Containers" example
+  updates local state on every `onDragOver` so cards visibly shuffle mid-drag). Given the actual
+  acceptance bar (§11: "drag-drop... demonstrated in tests" — a real drop lands the right
+  status/order in `sprints.json`), computing the full destination arrangement once on drop and
+  persisting it via `save()` is simpler and just as correct; the tradeoff is the board only visually
+  reflects the move after the drop completes (near-instant in practice, since `save()`'s optimistic
+  update — see Phase 2's DECISIONS.md entry — applies before the network round trip finishes), not
+  smoothly during the drag gesture itself.
+
+### Deferred
+
+- Nothing new deferred this run beyond what PLAN.md §11 already scopes to part 3 (Crons, Skill
+  Trees, Flows) or Phase 6 (PWA, bundle-size audit).
+
+### Notes (not deviations, just choices made where the brief left room)
+
+- Generations panel filters on `kind` (image/video, required by §8) plus `tags` (a toggleable chip
+  row, OR-combined with each other and AND-combined with the kind filter) — the only two fields on
+  `GenerationItemSchema` that are actually enumerable/categorical across items; `prompt`/`model` are
+  free text better suited to a search box than a filter chip, and the brief said not to over-build a
+  "filterable gallery," so no search box was added either.
+- The Lightbox is deliberately a single always-mounted `<dialog>` (never conditionally rendered/
+  unmounted) whose `showModal()`/`close()` calls are driven by a `null | GenerationItem` prop via
+  `useEffect` — keeps the ref stable across opens/closes and lets the native `close` event (fired by
+  both the Close button, `Escape`, and the backdrop-click trick) be the single source of truth that
+  flows back into React state, rather than juggling two separate "is open" booleans that could drift.
+- `GenerationCard`/`Lightbox`'s media resolution (`path` via `/api/media` takes precedence over a
+  bare `url`) exists because `workspace.example/generations.json`'s `gen-07` ships only a `url`
+  field (no local file under `workspace/media/`) — both fields are optional in the schema, and a
+  gallery that only handled `path` would render a broken thumbnail for that one item.
+- Docs panel folder-expand/collapse state (`DocTreeView`'s per-node `useState`) is intentionally
+  ephemeral component state, not persisted anywhere — it's UI chrome, not workspace data, so
+  PLAN.md §12 guardrail 2 ("file-first is sacred") doesn't apply to it, same as the Sprints panel's
+  backlog-collapsed toggle.
+- Sprints panel's `handleDragEnd` recomputes *every* status group's `order` field sequentially
+  (0, 1, 2, …) on every drop, not just the two groups actually touched — simpler to reason about
+  and verify (guaranteed no duplicate/gap order values ever), and cheap at 14 tasks; not something
+  that would scale to a huge board, but PLAN.md's example workspace only has 14 tasks and nothing in
+  §8 asks for large-N performance.
+- The assignee popover writes `assigneeId` into `sprints.json` only — `agents.json` is read purely
+  for the id→name lookup used to render the picker and each card's assignee chip, matching the
+  brief's explicit "read-only reference, not a write" framing.
+
+### Live verification results (guardrail #7)
+
+- **`npm run check`** (typecheck + lint + format + all vitest suites across `shared`/`server`/`web`):
+  **green** — 185 tests total (45 shared + 117 server + 23 web, unchanged from part 1 — this run
+  added no new vitest unit tests, only e2e specs, matching the Links/Icons/Agents panels' own
+  precedent of e2e-only coverage for panel behavior), 0 lint errors, 0 format issues.
+- **`npm run e2e`** (`playwright test --config e2e/playwright.config.ts`, real Chromium, real
+  `scripts/dev.mjs`-booted server+Vite via Playwright's `webServer`): **run four times in a row**
+  (more than the "at least twice" ask, since the Sprints spec's real mouse-drag sequence is the run's
+  most timing-sensitive interaction and warranted extra scrutiny) — all 6 specs green every time, 0
+  browser console errors across every run. The stale `./workspace/` runtime directory was removed
+  before each run so the dev server re-seeded fresh from `workspace.example/` each time (same
+  precaution part 1's DECISIONS.md entry recorded); one harmless artifact was observed and cleaned up
+  between runs — `workspace/docs/e2e-temp/` is left as an *empty directory* after the Docs spec's
+  final `Delete` step, because `Workspace.deleteFile()` (Phase 1) only removes the file itself, not
+  now-empty parent directories it created via `mkdir(recursive: true)` on write. Not a data
+  correctness issue (the file itself is genuinely gone, `listTree()` only lists files so the empty
+  dir is invisible to every panel), just cosmetic; left `workspace.ts` unchanged since pruning empty
+  ancestor directories on delete is a small independent behavior change outside this run's scope.
+- **Sprints drag-and-drop — the literal §11 acceptance criterion**: `e2e/sprints.spec.ts` performs a
+  real `page.mouse.move()` → `down()` → several stepped `move()`s → `up()` sequence (not a
+  programmatic status-field edit) dragging task `t05` from the `todo` column onto task `t03` in the
+  `doing` column, then reads `sprints.json` off disk directly (not through the app) and confirms:
+  `t05` moved to `status: "doing", order: 0`; `t03`/`t04` (the column it was dropped into) shifted to
+  `order: 1`/`2`; `t06`/`t09` (the column it left) reindexed to `order: 0`/`1` with no gap left by
+  `t05`'s removal; and the DOM's column card counts (`doing`: 2→3, `todo`: 3→2) matched. A second
+  interaction in the same spec (assignee popover) confirms `sprints.json`'s `assigneeId` write path
+  independently.
+- Confirmed no background dev-server/Playwright processes or `:4680`/`:5173` listeners remained after
+  the verification passes (`ss -ltnp`, checked after each of the four `npm run e2e` runs and again
+  after the final `npm run check`); the runtime `./workspace/` directory was removed before the final
+  commit (gitignored, not part of the diff).
