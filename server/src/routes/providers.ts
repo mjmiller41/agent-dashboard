@@ -297,21 +297,50 @@ export function createProvidersRoutes(
     const code = c.req.query('code');
     const state = c.req.query('state') ?? null;
     const error = c.req.query('error');
-    if (error) return c.html(`<p>OAuth error: ${error}. You can close this tab.</p>`, 400);
-    if (!flowId || !code) return c.json({ error: 'missing flow/code in callback' }, 400);
+    if (error) return c.html(callbackPage('Sign-in cancelled', `The provider reported: ${error}`), 400);
+    if (!flowId || !code) {
+      return c.html(
+        callbackPage(
+          'Sign-in failed',
+          'The provider redirected back without a code. Close this tab and try connecting again.',
+        ),
+        400,
+      );
+    }
 
     try {
       const { providerId, secret } = await completePkceFlow(loopbackFlows, flowId, code, state);
       await store.set(providerId, 'oauth', secret);
       broadcastChange(providerId);
-      return c.html('<p>Signed in — you can close this tab.</p>');
+      return c.html(
+        callbackPage('Signed in — you can close this tab.', 'The dashboard has already updated.', true),
+      );
     } catch (err) {
-      if (err instanceof Error) return c.html(`<p>Sign-in failed: ${err.message}</p>`, 400);
+      if (err instanceof Error) return c.html(callbackPage('Sign-in failed', err.message), 400);
       throw err;
     }
   });
 
   return routes;
+}
+
+/** Minimal self-contained page for the OAuth popup to land on. Deliberately
+ *  inline (no app bundle, no SW): this tab is often the user's only signal
+ *  that something went wrong, so it must render even with the dashboard
+ *  offline, and it must never look like a blank/failed page. */
+function callbackPage(title: string, detail: string, success = false): string {
+  const escape = (s: string) =>
+    s.replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch] ?? ch);
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>${escape(title)}</title>
+<style>
+  body { font: 15px/1.6 system-ui, sans-serif; background: #14151a; color: #e8e8ee;
+         display: grid; place-items: center; height: 100vh; margin: 0; }
+  main { max-width: 32rem; padding: 2rem; text-align: center; }
+  h1 { font-size: 1.25rem; margin: 0 0 .5rem; color: ${success ? '#5cff9d' : '#ff7a7a'}; }
+  p { margin: 0; color: #a0a0b0; }
+</style></head>
+<body><main><h1>${escape(title)}</h1><p>${escape(detail)}</p></main></body></html>`;
 }
 
 async function runTest(descriptor: ProviderDescriptor, store: CredentialStore, cred: StoredCredential) {

@@ -1719,3 +1719,88 @@ PLAN.md §12 guardrail 7 itself anticipates ("if something can't be verified... 
 the handful of first-party OAuth completions that need a real, live third-party account this
 environment doesn't have, and this phase's "installable in Chrome"/Lighthouse-version caveats
 above. Nothing was found to be silently broken or silently skipped.
+
+## Post-ship hotfixes (issues #14, #15, #16) — real-usage bug reports
+
+First real-usage session after Phase 6 surfaced four provider failures. All
+four were investigated against the **live** APIs with real connected
+accounts, not by code inspection.
+
+### Anthropic: retired model id (#14)
+
+`anthropicTest` hardcoded `claude-3-5-haiku-20241022`, which now 404s. The
+live `/v1/models` catalogue confirms no 3.5-era snapshot remains (current:
+Opus 5 / Sonnet 5 / Fable 5 / Opus 4.8 / 4.7 / Sonnet 4.6 / Opus 4.6 / Opus
+4.5 / Haiku 4.5 / Sonnet 4.5 / Opus 4.1).
+
+Fixed to `claude-haiku-4-5`. **Deliberately the undated alias, not the dated
+snapshot** — snapshot ids are exactly what rotted here, and the alias tracks
+the current Haiku automatically. Verified live: the old id 404s, the alias
+returns 200 "ok".
+
+### OpenAI Codex: two independent bugs (#15)
+
+1. **Stale model list.** Every id in `codexListModels()` was rejected, as was
+   every other `*-codex` name tried (`gpt-5.1-codex`, `-mini`, `gpt-5.1`,
+   `gpt-5-codex`, `codex-mini-latest`, `-max`, `gpt-5.6`, `gpt-5.6-codex`,
+   `gpt-5.2-codex`, `gpt-5.5-codex`). The accepted ids are `gpt-5.6-terra`
+   and `gpt-5.6-sol`, cross-checked against the real Codex CLI's own
+   `~/.codex/config.toml`.
+2. **`stream: false` is rejected outright** — `400 {"detail":"Stream must be
+set to true"}`. `codexResponsesTest` and `doGenerate` both sent
+   `stream:false`, so **the OpenAI test call could never have succeeded**,
+   independent of the model id.
+
+Bug 2 survived Phases 3-4 because no ChatGPT account was available then; the
+adapter was only unit-tested against a mocked `fetch` that happily accepted
+`stream:false`. **The mock encoded a response shape the real backend never
+returns.** DECISIONS.md honestly recorded it as untested at the time — this
+is that gap coming due, and it's the concrete argument for preferring one
+real call over any number of self-consistent mocks. The test file now mocks
+SSE (what the backend actually sends) and carries a regression guard
+asserting every request sets `stream:true`.
+
+**Ruled out by testing, not assumption:** not an OAuth/token bug (our token's
+JWT claims are identical to the real Codex CLI's — same `aud`, `iss`,
+`chatgpt_plan_type`, account id); not a missing-header bug (`originator`,
+Codex UA, `version`, `session_id` change nothing); not our request shape
+beyond `stream` — **the real Codex CLI's own token, sent with our exact body,
+hits the identical 400.**
+
+`doGenerate` now streams and aggregates, since there is no non-streaming
+envelope to parse. `originator: codex_cli_rs` is sent (not an auth gate, but
+it's what the backend expects).
+
+### OAuth popup hardening (#16) — partial, honestly scoped
+
+Reported: Google and OpenRouter "loop back to the Agents page after clicking
+sign in, no connection made."
+
+**Not reproduced, and not fully diagnosed.** What was verified working
+end-to-end: `/oauth/start` returns a correct authorize URL; Google accepts
+our `redirect_uri` (no `redirect_uri_mismatch` — it serves the real sign-in
+page); the popup opens and reaches the real provider; a simulated
+provider-redirect back into `/api/providers/oauth/callback` resolves the
+pending flow and performs a real key exchange (fails only on the deliberately
+fake code); the callback route is never shadowed by Phase 6's static-file
+catch-all in either dev or production. The one untestable link is the
+authenticated round-trip itself — no OpenRouter/Google account here.
+
+Two real robustness defects were found and fixed on the way, either of which
+could present as "clicked sign in, ended up back where I started":
+
+- **`window.open` was called after an `await`**, outside the click's user-
+  gesture window. Browsers block that in stricter configurations, silently.
+  Now the tab opens synchronously on click (parked on `about:blank`) and is
+  pointed at the authorize URL once the server responds.
+- **A blocked popup failed silently.** Now it surfaces a manual "open the
+  sign-in page" link instead of appearing to do nothing.
+
+Also added: a visible "waiting for you to finish signing in" state for
+loopback/fixed-port flows, and a real styled callback page (inline CSS, no
+app bundle or SW, so it renders even with the dashboard offline) reporting
+success/failure instead of one bare `<p>`.
+
+These are genuine fixes, but **whether they address the reported symptom is
+unconfirmed** — they were not reproduced here. Reopen #16 with browser and
+install-mode (tab vs installed PWA) if it recurs.

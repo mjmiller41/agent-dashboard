@@ -114,6 +114,13 @@ export interface ProviderDescriptor {
 
 const TEST_PROMPT = 'Reply with the single word: ok';
 
+// Cheapest/fastest current Anthropic model, used only for the connection
+// test. Deliberately the *undated alias* rather than a dated snapshot
+// (`claude-haiku-4-5-20251001`): snapshots get retired and 404 — which is
+// exactly how the original `claude-3-5-haiku-20241022` here broke in real
+// use (issue #14). The alias tracks the current Haiku automatically.
+const ANTHROPIC_TEST_MODEL = 'claude-haiku-4-5';
+
 // --- OpenRouter -------------------------------------------------------
 async function openrouterTest(cred: StoredCredential): Promise<ProviderTestResult> {
   if (!cred.apiKey) return { ok: false, message: 'no API key stored' };
@@ -147,7 +154,7 @@ async function anthropicTest(cred: StoredCredential): Promise<ProviderTestResult
   if (cred.method === 'api-key' && cred.apiKey) {
     const anthropic = createAnthropic({ apiKey: cred.apiKey });
     const result = await generateText({
-      model: anthropic('claude-3-5-haiku-20241022'),
+      model: anthropic(ANTHROPIC_TEST_MODEL),
       prompt: TEST_PROMPT,
       maxOutputTokens: 10,
       maxRetries: 0,
@@ -166,7 +173,7 @@ async function anthropicTest(cred: StoredCredential): Promise<ProviderTestResult
         'anthropic-beta': ANTHROPIC_OAUTH.anthropicBeta,
       },
       body: JSON.stringify({
-        model: 'claude-3-5-haiku-20241022',
+        model: ANTHROPIC_TEST_MODEL,
         max_tokens: 10,
         messages: [{ role: 'user', content: TEST_PROMPT }],
       }),

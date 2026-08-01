@@ -1,7 +1,11 @@
-// Unit tests for CodexBackendLanguageModel with a mocked `fetch` — the
-// ChatGPT OAuth flow isn't live-testable in this environment (no account,
-// per DECISIONS.md "Phase 3"), so this is the only verification available
-// for this adapter's request/response parsing (see DECISIONS.md "Phase 4").
+// Unit tests for CodexBackendLanguageModel with a mocked `fetch`. These
+// mocks are now shaped to match what the REAL ChatGPT-account Codex backend
+// actually does, verified live in issue #15 — in particular that it only
+// ever streams (`stream:false` is rejected with `400 {"detail":"Stream must
+// be set to true"}`), so both doStream *and* doGenerate consume SSE. The
+// earlier version of this file mocked a non-streaming JSON envelope for
+// doGenerate, which the backend never returns; that fiction is exactly why
+// the stale `stream:false` bug survived Phase 3/4 unnoticed.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { LanguageModelV4CallOptions } from '@ai-sdk/provider';
 import { CodexBackendLanguageModel } from './openai-codex.ts';
@@ -51,7 +55,7 @@ describe('CodexBackendLanguageModel', () => {
     const model = new CodexBackendLanguageModel({
       accessToken: 'tok',
       accountId: 'acct',
-      modelId: 'gpt-5.1-codex',
+      modelId: 'gpt-5.6-terra',
     });
     const { stream } = await model.doStream(baseOptions);
     const parts = [];
@@ -78,7 +82,7 @@ describe('CodexBackendLanguageModel', () => {
     const model = new CodexBackendLanguageModel({
       accessToken: 'tok',
       accountId: undefined,
-      modelId: 'gpt-5.1-codex',
+      modelId: 'gpt-5.6-terra',
     });
     const { stream } = await model.doStream(baseOptions);
     const parts = [];
@@ -86,16 +90,18 @@ describe('CodexBackendLanguageModel', () => {
     expect(parts.some((p) => p.type === 'error')).toBe(true);
   });
 
-  it('doGenerate: extracts output_text from a non-streaming Responses API envelope', async () => {
+  it('doGenerate: aggregates streamed deltas into one text part', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(
         async () =>
           new Response(
-            JSON.stringify({
-              output: [{ type: 'message', content: [{ type: 'output_text', text: 'ok' }] }],
-            }),
-            { status: 200 },
+            sseBody(
+              sseChunk({ type: 'response.output_text.delta', delta: 'o' }),
+              sseChunk({ type: 'response.output_text.delta', delta: 'k' }),
+              sseChunk({ type: 'response.completed' }),
+            ),
+            { status: 200, headers: { 'content-type': 'text/event-stream' } },
           ),
       ),
     );
@@ -103,10 +109,37 @@ describe('CodexBackendLanguageModel', () => {
     const model = new CodexBackendLanguageModel({
       accessToken: 'tok',
       accountId: undefined,
-      modelId: 'gpt-5.1-codex',
+      modelId: 'gpt-5.6-terra',
     });
     const result = await model.doGenerate(baseOptions);
     expect(result.content).toEqual([{ type: 'text', text: 'ok' }]);
     expect(result.finishReason.unified).toBe('stop');
+  });
+
+  // Regression guard for issue #15: the backend hard-rejects stream:false,
+  // so every request this adapter builds must set stream:true.
+  it('always sends stream:true — the backend rejects non-streaming requests', async () => {
+    const fetchMock = vi.fn(async (...[, init]: [string | URL | Request, RequestInit?]) => {
+      void init;
+      return new Response(sseBody(sseChunk({ type: 'response.completed' })), {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const model = new CodexBackendLanguageModel({
+      accessToken: 'tok',
+      accountId: 'acct',
+      modelId: 'gpt-5.6-terra',
+    });
+    await model.doGenerate(baseOptions);
+    await model.doStream(baseOptions);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(JSON.parse(init?.body as string).stream).toBe(true);
+      expect((init?.headers as Record<string, string>).originator).toBe('codex_cli_rs');
+    }
   });
 });

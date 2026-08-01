@@ -36,6 +36,10 @@ export function ProviderDrawer({ provider, onClose, onChanged }: ProviderDrawerP
   const [deviceCode, setDeviceCode] = useState<DeviceCodeState>(null);
   const [pasteAuthUrl, setPasteAuthUrl] = useState<string | null>(null);
   const [pastedValue, setPastedValue] = useState('');
+  /** Set when window.open was blocked, so we can offer a manual link instead. */
+  const [blockedAuthUrl, setBlockedAuthUrl] = useState<string | null>(null);
+  /** True between starting a loopback/fixed-port flow and the SSE event landing. */
+  const [awaitingCallback, setAwaitingCallback] = useState(false);
   const [models, setModels] = useState<ModelInfo[] | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   useModalA11y(containerRef, onClose);
@@ -75,6 +79,14 @@ export function ProviderDrawer({ provider, onClose, onChanged }: ProviderDrawerP
   const startOAuth = useCallback(async () => {
     setBusy(true);
     setError(null);
+    // Open the tab SYNCHRONOUSLY, before any `await`. Browsers only treat
+    // window.open as user-initiated while the click's gesture is still
+    // active; opening it after the /oauth/start round-trip gets it silently
+    // blocked in stricter configurations, which looks exactly like "clicked
+    // sign in and nothing happened // I ended up back where I started".
+    // We park it on about:blank and point it at the real authUrl once the
+    // server hands one back.
+    const authWindow = window.open('about:blank', '_blank');
     try {
       const res = await fetch(`/api/providers/${provider.id}/oauth/start`, { method: 'POST' });
       if (!res.ok) throw new Error(await parseError(res));
@@ -86,6 +98,7 @@ export function ProviderDrawer({ provider, onClose, onChanged }: ProviderDrawerP
         expiresIn?: number;
       };
       if (body.kind === 'device-code' && body.userCode && body.verificationUri) {
+        authWindow?.close(); // device-code shows a code inline; no tab needed
         setDeviceCode({
           userCode: body.userCode,
           verificationUri: body.verificationUri,
@@ -94,14 +107,24 @@ export function ProviderDrawer({ provider, onClose, onChanged }: ProviderDrawerP
         return;
       }
       if (!body.authUrl) throw new Error('server did not return an authUrl');
-      window.open(body.authUrl, '_blank', 'noopener,noreferrer');
+      if (authWindow) {
+        authWindow.location.href = body.authUrl;
+      } else {
+        // Popup blocked. Don't fail silently — surface the URL so the user
+        // can still complete the flow manually.
+        setBlockedAuthUrl(body.authUrl);
+      }
       if (body.kind === 'pkce-code-paste') {
         setPasteAuthUrl(body.authUrl);
+      } else {
+        // pkce-loopback / pkce-fixed-port complete server-side; a
+        // provider-change SSE event (handled by useProviders) flips
+        // `connected` once the callback lands. Show that we're waiting so a
+        // silent failure doesn't just look like nothing happened.
+        setAwaitingCallback(true);
       }
-      // pkce-loopback / pkce-fixed-port: nothing else to do here — the
-      // callback completes server-side and a provider-change SSE event
-      // (handled by useProviders) will flip `connected` once it lands.
     } catch (err) {
+      authWindow?.close();
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
@@ -246,9 +269,26 @@ export function ProviderDrawer({ provider, onClose, onChanged }: ProviderDrawerP
                     </button>
                   </div>
                 ) : (
-                  <button type="button" disabled={busy} onClick={connectClicked}>
-                    Connect with {provider.name}
-                  </button>
+                  <>
+                    <button type="button" disabled={busy} onClick={connectClicked}>
+                      Connect with {provider.name}
+                    </button>
+                    {blockedAuthUrl && (
+                      <p className="provider-drawer__hint">
+                        Your browser blocked the sign-in tab.{' '}
+                        <a href={blockedAuthUrl} target="_blank" rel="noreferrer">
+                          Open the sign-in page manually
+                        </a>
+                        .
+                      </p>
+                    )}
+                    {awaitingCallback && !blockedAuthUrl && (
+                      <p className="provider-drawer__hint">
+                        Waiting for you to finish signing in… this panel updates automatically when the
+                        sign-in tab reports back. If that tab showed an error, close it and try again.
+                      </p>
+                    )}
+                  </>
                 )}
               </section>
             )}
