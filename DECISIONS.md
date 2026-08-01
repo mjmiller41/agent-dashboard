@@ -1804,3 +1804,51 @@ success/failure instead of one bare `<p>`.
 These are genuine fixes, but **whether they address the reported symptom is
 unconfirmed** — they were not reproduced here. Reopen #16 with browser and
 install-mode (tab vs installed PWA) if it recurs.
+
+## Post-ship hotfix (#17): `npm run build && npm start` fails on a stale tree
+
+Reported: `npm start` dies with `MODULE_NOT_FOUND` on
+`server/dist/index.js` immediately after a successful-looking
+`npm run build`.
+
+Reproduced exactly, and it is two defects, not one.
+
+### 1. `tsc` silently emits nothing when `dist/` is deleted but `tsconfig.tsbuildinfo` survives
+
+`server/tsconfig.json` sets `composite: true`, which implies `incremental`.
+The build state lives in `server/tsconfig.tsbuildinfo` (gitignored). If
+`dist/` is removed while the buildinfo remains — a partial clean, a
+`.gitignore`d-artifact sweep, a backup/restore, or in this case my own Phase 6
+verification cleanup — `tsc` consults the buildinfo, concludes everything is
+up to date, **writes nothing, and exits 0**. `npm run build` looks completely
+successful. `npm start` then can't find the entrypoint.
+
+Notably `tsc --build` does **not** save you here: `tsc --build --dry` reports
+_"Project is up to date"_ with `dist/` entirely absent. It trusts the
+buildinfo rather than checking that the outputs it promises actually exist.
+Only `--force` re-emits. So `build` is now `tsc --build --force`.
+
+This was previously written off in the project notes as a "known gotcha"
+to be worked around by hand. That was the wrong call — a build script that
+silently produces nothing is a bug in the build script, not a fact of life
+for everyone who clones the repo.
+
+### 2. The resulting failure was illegible
+
+`start` was `node server/dist/index.js`, so an unbuilt tree produced a raw
+Node module-resolution stack trace naming an internal loader path — nothing
+about _why_ the file is missing or what to do. It also checked nothing about
+`web/dist`, so a missing front-end build failed later and worse: the server
+booted fine and served 404s for every page.
+
+`start` is now `node scripts/start.mjs`, which verifies both build outputs
+and prints what's missing plus `Run \`npm run build\` first`, exiting 1.
+
+Verified: from a fully clean tree (`server/dist`, `web/dist`, and
+`tsconfig.tsbuildinfo` all removed) `npm run build && npm start` serves
+`/` 200, `/manifest.webmanifest` 200, `/sw.js` 200, `/api/providers` 200;
+building twice in a row still emits; prod PWA e2e 2/2. A regression test
+covers the buildinfo-without-dist case directly.
+
+Note: `GET /agents` returning 404 is correct, not a regression — the app is
+hash-routed (`/#/agents`), so `/` is the only server-side document route.
