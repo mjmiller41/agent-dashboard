@@ -1519,3 +1519,451 @@ body {
   cursor: pointer;
   font-size: 0.75rem;
 }
+
+/* Crons panel (PLAN.md §8 item 7). */
+
+.crons-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.cron-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.cron-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+}
+
+.cron-row__main {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  flex: 1;
+  min-width: 0;
+}
+
+.cron-row__toggle {
+  padding-top: 2px;
+}
+
+.cron-row__body {
+  min-width: 0;
+}
+
+.cron-row__name-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.cron-row__name {
+  font-weight: 600;
+}
+
+.cron-row__badge {
+  font-size: 0.7rem;
+  border-radius: 999px;
+  padding: 1px var(--space-2);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-dim);
+}
+
+.cron-row__badge--invalid {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+.cron-row__badge--disabled {
+  color: var(--color-text-dim);
+}
+
+.cron-row__schedule {
+  margin: var(--space-1) 0 0;
+  font-size: 0.85rem;
+  color: var(--color-text-dim);
+}
+
+.cron-row__schedule code {
+  font-family: var(--font-mono);
+  color: var(--color-text);
+}
+
+.cron-row__meta {
+  margin: var(--space-1) 0 0;
+  font-size: 0.8rem;
+  color: var(--color-text-dim);
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.cron-row__command {
+  font-family: var(--font-mono);
+}
+
+.cron-row__times {
+  display: flex;
+  gap: var(--space-4);
+  flex-shrink: 0;
+  font-size: 0.8rem;
+}
+
+.cron-row__label {
+  display: block;
+  color: var(--color-text-dim);
+  margin-bottom: var(--space-1);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cron-row__next ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.cron-row__dash {
+  color: var(--color-text-dim);
+}
+
+.cron-calendar {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-4);
+  max-width: 560px;
+}
+
+.cron-calendar__header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.cron-calendar__header button {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  border-radius: var(--radius);
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+}
+
+.cron-calendar__month-label {
+  font-weight: 600;
+  min-width: 140px;
+  text-align: center;
+}
+
+.cron-calendar__weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  font-size: 0.7rem;
+  color: var(--color-text-dim);
+  text-align: center;
+  margin-bottom: var(--space-1);
+}
+
+.cron-calendar__grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.cron-calendar__day {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: var(--radius);
+  background: var(--color-surface-alt);
+  padding: var(--space-1);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.cron-calendar__day--outside {
+  opacity: 0.35;
+}
+
+.cron-calendar__day--today {
+  outline: 1px solid var(--color-accent);
+}
+
+.cron-calendar__day-number {
+  font-size: 0.75rem;
+  color: var(--color-text-dim);
+}
+
+.cron-calendar__dots {
+  display: flex;
+  gap: 2px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.cron-calendar__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-accent);
+}
+
+.cron-calendar__popover {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 10;
+  margin-top: var(--space-1);
+  width: 220px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-2) var(--space-3);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  text-align: left;
+}
+
+.cron-calendar__popover-date {
+  margin: 0 0 var(--space-1);
+  font-size: 0.75rem;
+  color: var(--color-text-dim);
+}
+
+.cron-calendar__popover ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: 0.75rem;
+}
+
+.cron-calendar__popover li strong {
+  display: block;
+}
+
+.cron-calendar__popover li span {
+  color: var(--color-text-dim);
+}
+
+/* Skill Trees panel (PLAN.md §8 item 8). */
+
+.skills-panel__hint {
+  margin: 0 0 var(--space-3);
+  font-size: 0.85rem;
+  color: var(--color-text-dim);
+}
+
+.skill-graph {
+  width: 100%;
+  height: 70vh;
+  min-height: 420px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  touch-action: none;
+}
+
+.skill-graph__edge {
+  stroke: var(--color-border);
+  stroke-width: 1.5;
+}
+
+.skill-node {
+  cursor: pointer;
+}
+
+.skill-node circle {
+  stroke: var(--color-surface);
+  stroke-width: 2;
+}
+
+.skill-node--selected circle {
+  stroke: var(--color-accent);
+  stroke-width: 3;
+}
+
+.skill-node__label {
+  fill: var(--color-text);
+  font-size: 11px;
+  pointer-events: none;
+}
+
+.skill-detail-drawer {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-4);
+  width: 420px;
+  max-width: calc(100vw - var(--space-5));
+  max-height: calc(100vh - var(--space-5));
+  overflow-y: auto;
+}
+
+.skill-detail-drawer__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-3);
+}
+
+.skill-detail-drawer__header h2 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.skill-detail-drawer__dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.skill-detail-drawer__header button {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--color-text-dim);
+  font-size: 1.4rem;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.skill-detail-drawer__fields {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-2) var(--space-3);
+}
+
+.skill-detail-drawer__fields dt {
+  color: var(--color-text-dim);
+  font-size: 0.8rem;
+}
+
+.skill-detail-drawer__fields dd {
+  margin: 0;
+  color: var(--color-text);
+}
+
+/* Flows panel (PLAN.md §8 item 9). */
+
+.flows-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  height: 100%;
+}
+
+.flows-panel__picker {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.flow-canvas {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.flow-canvas .react-flow {
+  height: 65vh;
+  min-height: 420px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.flow-canvas__run-note {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--color-text-dim);
+}
+
+.flow-node {
+  width: 200px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  border: 2px solid var(--color-border);
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+}
+
+.flow-node__label {
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.flow-node__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--space-1);
+  font-size: 0.7rem;
+  color: var(--color-text-dim);
+}
+
+.flow-node__status {
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.flow-node--pending {
+  border-color: var(--color-border);
+}
+
+.flow-node--running {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.2);
+}
+
+.flow-node--done {
+  border-color: var(--color-success);
+}
+
+.flow-node--failed {
+  border-color: var(--color-danger);
+  background: var(--color-danger-bg);
+}
+
+.flow-node--skipped {
+  border-color: var(--color-border);
+  opacity: 0.6;
+}
+
+.react-flow .flow-edge--traversed path {
+  stroke: var(--color-success);
+  stroke-width: 2;
+}
+
+.react-flow .flow-edge--failed path {
+  stroke: var(--color-danger);
+  stroke-width: 2;
+  stroke-dasharray: 4 3;
+}

@@ -8,7 +8,6 @@ import { EmptyState } from './components/EmptyState';
 import { QuickSwitcher } from './components/QuickSwitcher';
 import { SettingsModal } from './components/SettingsModal';
 
-const PlaceholderPanel = lazy(() => import('./panels/PlaceholderPanel'));
 const ProvidersPanel = lazy(() => import('./panels/providers/ProvidersPanel'));
 const AssistantPanel = lazy(() => import('./panels/assistant/AssistantPanel'));
 const LinksPanel = lazy(() => import('./panels/links/LinksPanel'));
@@ -17,24 +16,15 @@ const AgentsPanel = lazy(() => import('./panels/agents/AgentsPanel'));
 const GenerationsPanel = lazy(() => import('./panels/generations/GenerationsPanel'));
 const DocsPanel = lazy(() => import('./panels/docs/DocsPanel'));
 const SprintsPanel = lazy(() => import('./panels/sprints/SprintsPanel'));
+const CronsPanel = lazy(() => import('./panels/crons/CronsPanel'));
+const SkillsPanel = lazy(() => import('./panels/skills/SkillsPanel'));
+const FlowsPanel = lazy(() => import('./panels/flows/FlowsPanel'));
 
-// Panel ids with a real component so far (Phase 5 parts 1 + 2). Everything
-// else in KNOWN_PANEL_IDS still falls through to PlaceholderPanel until
-// part 3 lands.
-const BUILT_PANEL_IDS = new Set([
-  'providers',
-  'assistant',
-  'links',
-  'icons',
-  'agents',
-  'generations',
-  'docs',
-  'sprints',
-]);
-
-// Panel ids the shell knows how to route to. Real components land in Phase
-// 5 (PLAN.md §8); a tab whose `panel` isn't in this set renders as an error
-// tab, per PLAN.md §4 ("unknown panel ids render an error tab").
+// Panel ids the shell knows how to route to. Every panel now has a real
+// component (Phase 5 parts 1-3, the closing slice — `PlaceholderPanel`
+// still exists as a file but nothing routes to it anymore); a tab whose
+// `panel` isn't in this set renders as an error tab, per PLAN.md §4
+// ("unknown panel ids render an error tab").
 const KNOWN_PANEL_IDS = new Set([
   'agents',
   'flows',
@@ -201,9 +191,21 @@ export function App() {
           </Suspense>
         )}
 
-        {activeTab && !BUILT_PANEL_IDS.has(activeTab.panel) && KNOWN_PANEL_IDS.has(activeTab.panel) && (
+        {activeTab && activeTab.panel === 'crons' && (
           <Suspense fallback={<p>Loading panel…</p>}>
-            <PlaceholderPanel panelId={activeTab.panel} label={activeTab.label} />
+            <CronsPanel />
+          </Suspense>
+        )}
+
+        {activeTab && activeTab.panel === 'skills' && (
+          <Suspense fallback={<p>Loading panel…</p>}>
+            <SkillsPanel />
+          </Suspense>
+        )}
+
+        {activeTab && activeTab.panel === 'flows' && (
+          <Suspense fallback={<p>Loading panel…</p>}>
+            <FlowsPanel />
           </Suspense>
         )}
       </main>
