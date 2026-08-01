@@ -3,12 +3,26 @@
 // chosen iconId into that agent's entry in agents.json through
 // useWorkspaceFile's save() (a targeted field update, not a raw overwrite —
 // PLAN.md §8 item 2 / §12 guardrail 3).
-import { useState } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { AgentsFileSchema } from '@agent-dashboard/shared';
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorCard } from '../../components/ErrorCard';
+import { useModalA11y } from '../../hooks/useModalA11y';
 import { useWorkspaceFile } from '../../hooks/useWorkspaceFile';
 import { useIconList } from './useIconList';
+
+// One IconAssignPopover per icon tile, so each gets its own focus-trap/
+// Escape-close (PLAN.md §11 Phase 6) without changing IconsPanel's existing
+// per-tile open/close state shape.
+function IconAssignPopover({ children, onClose }: { children: ReactNode; onClose: () => void }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  useModalA11y(containerRef, onClose);
+  return (
+    <div ref={containerRef} tabIndex={-1} className="icon-assign-popover">
+      {children}
+    </div>
+  );
+}
 
 export default function IconsPanel() {
   const { icons, error: iconsError, loading: iconsLoading } = useIconList();
@@ -67,7 +81,7 @@ export default function IconsPanel() {
             </button>
 
             {openIconId === icon.id && (
-              <div className="icon-assign-popover">
+              <IconAssignPopover onClose={() => setOpenIconId(null)}>
                 <p className="icon-assign-popover__title">Assign to agent</p>
                 {agentsData && agentsData.agents.length > 0 ? (
                   <ul>
@@ -90,7 +104,7 @@ export default function IconsPanel() {
                 >
                   Close
                 </button>
-              </div>
+              </IconAssignPopover>
             )}
           </div>
         ))}

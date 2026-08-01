@@ -1,6 +1,9 @@
 // One-time first-party OAuth consent modal (PLAN.md §6a bullet 1 — exact
 // required copy). Shown before any `firstParty: true` OAuth flow starts;
 // acceptance is persisted once via useConsent and never asked again.
+import { useRef } from 'react';
+import { useModalA11y } from '../../hooks/useModalA11y';
+
 const VENDOR_CLI_NAMES: Record<string, string> = {
   anthropic: 'Claude Code',
   openai: 'Codex CLI',
@@ -16,10 +19,17 @@ export interface ConsentModalProps {
 
 export function ConsentModal({ providerId, providerName, onAccept, onClose }: ConsentModalProps) {
   const vendorCli = VENDOR_CLI_NAMES[providerId] ?? `${providerName}'s CLI`;
+  const containerRef = useRef<HTMLDivElement>(null);
+  useModalA11y(containerRef, onClose);
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="consent-modal" onClick={(event) => event.stopPropagation()}>
+      <div
+        ref={containerRef}
+        tabIndex={-1}
+        className="consent-modal"
+        onClick={(event) => event.stopPropagation()}
+      >
         <h2>Before connecting {providerName}</h2>
         <p className="consent-modal__copy">
           This signs in using {vendorCli}&rsquo;s credentials. It is not an officially supported integration

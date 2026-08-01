@@ -1,6 +1,8 @@
 // Minimal theme settings modal (PLAN.md §7). Not polished — Phase 6 is
 // "polish" — this just proves preset + accent round-trip through config.json.
+import { useRef } from 'react';
 import type { Theme, ThemePreset } from '@agent-dashboard/shared';
+import { useModalA11y } from '../hooks/useModalA11y';
 
 const PRESETS: ThemePreset[] = ['dark', 'light', 'midnight', 'terminal-green'];
 const DEFAULT_ACCENT = '#7c5cff';
@@ -13,9 +15,17 @@ export interface SettingsModalProps {
 }
 
 export function SettingsModal({ theme, onChange, onClose }: SettingsModalProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  useModalA11y(containerRef, onClose);
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="settings-modal" onClick={(event) => event.stopPropagation()}>
+      <div
+        ref={containerRef}
+        tabIndex={-1}
+        className="settings-modal"
+        onClick={(event) => event.stopPropagation()}
+      >
         <h2>Theme</h2>
         <div className="settings-modal__presets">
           {PRESETS.map((preset) => (

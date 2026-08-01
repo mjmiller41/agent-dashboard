@@ -1,8 +1,9 @@
 // Inline edit drawer (PLAN.md §8 item 3), following the same
 // modal-backdrop + drawer interaction convention Phase 3's
 // panels/providers/ProviderDrawer.tsx established (not a new pattern).
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { AgentStatusSchema, type Agent, type AgentStatus } from '@agent-dashboard/shared';
+import { useModalA11y } from '../../hooks/useModalA11y';
 
 export interface AgentDrawerProps {
   agent: Agent;
@@ -21,6 +22,8 @@ export function AgentDrawer({ agent, onClose, onSave }: AgentDrawerProps) {
   const [notes, setNotes] = useState(agent.notes ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  useModalA11y(containerRef, onClose);
 
   async function submit() {
     const trimmedName = name.trim();
@@ -52,7 +55,12 @@ export function AgentDrawer({ agent, onClose, onSave }: AgentDrawerProps) {
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="agent-drawer" onClick={(event) => event.stopPropagation()}>
+      <div
+        ref={containerRef}
+        tabIndex={-1}
+        className="agent-drawer"
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="agent-drawer__header">
           <h2>Edit {agent.name}</h2>
           <button type="button" onClick={onClose} aria-label="Close">

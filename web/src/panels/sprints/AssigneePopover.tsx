@@ -2,6 +2,9 @@
 // agents"). agents.json is read-only reference data here — selecting an
 // agent writes assigneeId into the task's entry in sprints.json (the
 // panel's own document), never back into agents.json.
+import { useRef } from 'react';
+import { useModalA11y } from '../../hooks/useModalA11y';
+
 export interface AssigneePopoverProps {
   agents: { id: string; name: string }[];
   currentAssigneeId: string | undefined;
@@ -10,8 +13,16 @@ export interface AssigneePopoverProps {
 }
 
 export function AssigneePopover({ agents, currentAssigneeId, onSelect, onClose }: AssigneePopoverProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  useModalA11y(containerRef, onClose);
+
   return (
-    <div className="assignee-popover" onClick={(event) => event.stopPropagation()}>
+    <div
+      ref={containerRef}
+      tabIndex={-1}
+      className="assignee-popover"
+      onClick={(event) => event.stopPropagation()}
+    >
       <p className="assignee-popover__title">Assign to</p>
       <ul>
         <li>

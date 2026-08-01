@@ -1,8 +1,9 @@
 // Ctrl+K quick-switcher (PLAN.md §7). Scoped to tab switching for now since
 // docs/links panels don't exist yet — see DECISIONS.md "Deferred" for the
 // full panels+docs+links search.
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { Tab } from '@agent-dashboard/shared';
+import { useModalA11y } from '../hooks/useModalA11y';
 
 export interface QuickSwitcherProps {
   tabs: Tab[];
@@ -16,10 +17,17 @@ export function QuickSwitcher({ tabs, onSelect, onClose }: QuickSwitcherProps) {
     () => tabs.filter((tab) => tab.label.toLowerCase().includes(query.toLowerCase())),
     [tabs, query],
   );
+  const containerRef = useRef<HTMLDivElement>(null);
+  useModalA11y(containerRef, onClose);
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="quick-switcher" onClick={(event) => event.stopPropagation()}>
+      <div
+        ref={containerRef}
+        tabIndex={-1}
+        className="quick-switcher"
+        onClick={(event) => event.stopPropagation()}
+      >
         <input
           autoFocus
           type="text"

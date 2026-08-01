@@ -2,9 +2,10 @@
 // button, API-key masked input + Test & Save, and — once connected — a
 // model picker, Test, and Disconnect. First-party OAuth flows are gated by
 // the one-time consent modal (PLAN.md §6a).
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ConsentModal } from './ConsentModal';
 import { useFirstPartyConsent } from './useConsent';
+import { useModalA11y } from '../../hooks/useModalA11y';
 import type { ModelInfo, ProviderSummary, ProviderTestResult } from './types';
 
 export interface ProviderDrawerProps {
@@ -36,6 +37,8 @@ export function ProviderDrawer({ provider, onClose, onChanged }: ProviderDrawerP
   const [pasteAuthUrl, setPasteAuthUrl] = useState<string | null>(null);
   const [pastedValue, setPastedValue] = useState('');
   const [models, setModels] = useState<ModelInfo[] | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  useModalA11y(containerRef, onClose);
 
   // Per-provider state (testResult/deviceCode/etc.) resets automatically
   // because ProvidersPanel mounts this component with `key={provider.id}` —
@@ -163,7 +166,12 @@ export function ProviderDrawer({ provider, onClose, onChanged }: ProviderDrawerP
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="provider-drawer" onClick={(event) => event.stopPropagation()}>
+      <div
+        ref={containerRef}
+        tabIndex={-1}
+        className="provider-drawer"
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="provider-drawer__header">
           <h2>{provider.name}</h2>
           <button type="button" onClick={onClose} aria-label="Close">
