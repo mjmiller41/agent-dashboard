@@ -676,6 +676,21 @@ scope was `GET /api/media`, the e2e/Playwright scaffold, and the Links/Icons/Age
 (§8 items 1–3) only. Generations, Docs, Sprints, Crons, Skill Trees, and Flows are explicitly
 out of scope and untouched.
 
+### Orchestrator correction (post-review, before push)
+
+- **`e2e/playwright.config.ts`'s `fullyParallel: true` (default worker count) raced two specs
+  against the same on-disk file.** `icons.spec.ts` and `agents.spec.ts` both directly read/write
+  `workspace/agents.json` (the icons test assigns an icon by writing `iconId`; the agents test
+  edits `currentTask` to prove the SSE-update latency, then restores the original). Independently
+  re-running `npm run e2e` during orchestrator review (not the build session, which reported all 3
+  green) reproduced a real failure: `icons.spec.ts`'s write was clobbered mid-flight by
+  `agents.spec.ts` running concurrently in a different worker, so the `iconId` assertion timed out.
+  Fixed by setting `fullyParallel: false` / `workers: 1` — confirmed stable across 2 repeated runs
+  after the fix (3/3 passing both times, including the same ~195-200ms SSE-latency measurement).
+  Worth remembering for parts 2/3: any new spec that reads/writes a file another spec also touches
+  needs this same serialization, not per-test workspace isolation (out of scope to build for a
+  handful of smoke tests).
+
 ### Deviations
 
 - **`GET /api/media?path=…` calls `Workspace.resolveGuarded()` directly** (already public on
@@ -696,7 +711,7 @@ out of scope and untouched.
   narrowly-scoped addition to make `npm run e2e` reliable; doesn't change dev-server behavior when
   the port is actually free (the overwhelmingly common case).
 - **`e2e/playwright.config.ts` sets `outputDir` explicitly to `e2e/test-results`.** Playwright's
-  default `outputDir` is resolved against the *invoking* `cwd`, not the config file's directory —
+  default `outputDir` is resolved against the _invoking_ `cwd`, not the config file's directory —
   running `playwright test --config e2e/playwright.config.ts` from the repo root (as `npm run e2e`
   does) would otherwise scatter a top-level `test-results/` outside the `e2e/test-results/` /
   `e2e/playwright-report/` paths `.gitignore` already anticipates. Found by actually running the

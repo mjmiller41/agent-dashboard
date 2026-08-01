@@ -14,7 +14,15 @@ export default defineConfig({
   // Keep generated artifacts under e2e/ (gitignored there), not the repo
   // root, regardless of the cwd `playwright test` is invoked from.
   outputDir: path.join(REPO_ROOT, 'e2e', 'test-results'),
-  fullyParallel: true,
+  // Specs share one on-disk `workspace/` dir served by a single dev-server
+  // instance (not per-worker isolated), and more than one spec directly
+  // reads/writes the same workspace files (e.g. icons.spec.ts and
+  // agents.spec.ts both mutate agents.json). Running fully parallel across
+  // workers races those writes. Serialize to one worker instead of
+  // building per-test workspace isolation, since this suite is a handful of
+  // smoke tests, not a large parallel suite where that cost would matter.
+  fullyParallel: false,
+  workers: 1,
   retries: 0,
   reporter: 'list',
   use: {
