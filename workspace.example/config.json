@@ -12,6 +12,7 @@
     { "id": "generations", "panel": "generations", "label": "Generations", "icon": "icon-05.svg" },
     { "id": "docs", "panel": "docs", "label": "Docs", "icon": "icon-06.svg" },
     { "id": "links", "panel": "links", "label": "Links", "icon": "icon-07.svg" },
+    { "id": "icons", "panel": "icons", "label": "Icons", "icon": "icon-09.svg" },
     { "id": "sprints", "panel": "sprints", "label": "Sprints", "icon": "icon-08.svg" },
     { "id": "providers", "panel": "providers", "label": "Providers", "icon": "icon-01.svg" },
     { "id": "assistant", "panel": "assistant", "label": "Assistant", "icon": "icon-02.svg" }

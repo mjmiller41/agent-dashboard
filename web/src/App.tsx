@@ -11,6 +11,14 @@ import { SettingsModal } from './components/SettingsModal';
 const PlaceholderPanel = lazy(() => import('./panels/PlaceholderPanel'));
 const ProvidersPanel = lazy(() => import('./panels/providers/ProvidersPanel'));
 const AssistantPanel = lazy(() => import('./panels/assistant/AssistantPanel'));
+const LinksPanel = lazy(() => import('./panels/links/LinksPanel'));
+const IconsPanel = lazy(() => import('./panels/icons/IconsPanel'));
+const AgentsPanel = lazy(() => import('./panels/agents/AgentsPanel'));
+
+// Panel ids with a real component this run (Phase 5 part 1). Everything
+// else in KNOWN_PANEL_IDS still falls through to PlaceholderPanel until
+// parts 2/3 land.
+const BUILT_PANEL_IDS = new Set(['providers', 'assistant', 'links', 'icons', 'agents']);
 
 // Panel ids the shell knows how to route to. Real components land in Phase
 // 5 (PLAN.md §8); a tab whose `panel` isn't in this set renders as an error
@@ -145,14 +153,29 @@ export function App() {
           </Suspense>
         )}
 
-        {activeTab &&
-          activeTab.panel !== 'providers' &&
-          activeTab.panel !== 'assistant' &&
-          KNOWN_PANEL_IDS.has(activeTab.panel) && (
-            <Suspense fallback={<p>Loading panel…</p>}>
-              <PlaceholderPanel panelId={activeTab.panel} label={activeTab.label} />
-            </Suspense>
-          )}
+        {activeTab && activeTab.panel === 'links' && (
+          <Suspense fallback={<p>Loading panel…</p>}>
+            <LinksPanel />
+          </Suspense>
+        )}
+
+        {activeTab && activeTab.panel === 'icons' && (
+          <Suspense fallback={<p>Loading panel…</p>}>
+            <IconsPanel />
+          </Suspense>
+        )}
+
+        {activeTab && activeTab.panel === 'agents' && (
+          <Suspense fallback={<p>Loading panel…</p>}>
+            <AgentsPanel />
+          </Suspense>
+        )}
+
+        {activeTab && !BUILT_PANEL_IDS.has(activeTab.panel) && KNOWN_PANEL_IDS.has(activeTab.panel) && (
+          <Suspense fallback={<p>Loading panel…</p>}>
+            <PlaceholderPanel panelId={activeTab.panel} label={activeTab.label} />
+          </Suspense>
+        )}
       </main>
 
       {quickSwitcherOpen && (

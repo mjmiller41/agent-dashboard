@@ -6,6 +6,11 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   plugins: [react()],
   server: {
+    // Fixed, non-fallback port: e2e/playwright.config.ts's webServer waits
+    // on a specific URL (localhost:5173) and needs to know Vite actually
+    // bound it rather than silently shifting to 5174+ if busy.
+    port: 5173,
+    strictPort: true,
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:4680',

@@ -455,3 +455,439 @@ body {
   border-radius: var(--radius);
   cursor: pointer;
 }
+
+/* Links panel (PLAN.md §8 item 1). */
+
+.links-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.links-panel__error {
+  color: var(--color-danger);
+}
+
+.link-group {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-4);
+}
+
+.link-group__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.link-group__title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.link-group__delete {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-danger);
+  border-radius: var(--radius);
+  padding: 2px var(--space-2);
+  cursor: pointer;
+  font-size: 0.75rem;
+}
+
+.link-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-2);
+}
+
+.link-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.link-card__favicon {
+  width: 16px;
+  height: 16px;
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+
+.link-card__favicon--fallback {
+  display: inline-flex;
+  color: var(--color-text-dim);
+}
+
+.link-card__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.link-card__title {
+  color: var(--color-text);
+  font-weight: 500;
+  text-decoration: none;
+  word-break: break-word;
+}
+
+.link-card__title:hover {
+  color: var(--color-accent);
+}
+
+.link-card__note {
+  margin: 2px 0 0;
+  font-size: 0.8rem;
+  color: var(--color-text-dim);
+}
+
+.link-card__actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+
+.link-card__actions button {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--color-text-dim);
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 0;
+}
+
+.link-card__actions button:hover {
+  color: var(--color-text);
+}
+
+.link-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.link-form input {
+  flex: 1;
+  min-width: 140px;
+  padding: var(--space-2);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  border-radius: var(--radius);
+}
+
+.link-form__actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.link-group__add-link-toggle {
+  margin-top: var(--space-2);
+  appearance: none;
+  background: transparent;
+  border: 1px dashed var(--color-border);
+  color: var(--color-text-dim);
+  border-radius: var(--radius);
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+}
+
+.links-panel__add-group {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.links-panel__add-group input {
+  flex: 1;
+  max-width: 320px;
+  padding: var(--space-2);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  border-radius: var(--radius);
+}
+
+/* Icons panel (PLAN.md §8 item 2). */
+
+.icons-panel__intro {
+  color: var(--color-text-dim);
+  margin: 0 0 var(--space-4);
+}
+
+.icons-panel__error {
+  color: var(--color-danger);
+  margin: 0 0 var(--space-3);
+}
+
+.icons-panel__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: var(--space-3);
+}
+
+.icon-tile-wrap {
+  position: relative;
+}
+
+.icon-tile {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  color: var(--color-text);
+}
+
+.icon-tile:hover {
+  border-color: var(--color-accent);
+}
+
+.icon-tile img {
+  width: 40px;
+  height: 40px;
+}
+
+.icon-tile__label {
+  font-size: 0.7rem;
+  color: var(--color-text-dim);
+  word-break: break-all;
+  text-align: center;
+}
+
+.icon-assign-popover {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 10;
+  margin-top: var(--space-1);
+  width: 200px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-2);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+.icon-assign-popover__title {
+  margin: 0 0 var(--space-2);
+  font-size: 0.75rem;
+  color: var(--color-text-dim);
+}
+
+.icon-assign-popover ul {
+  list-style: none;
+  margin: 0 0 var(--space-2);
+  padding: 0;
+}
+
+.icon-assign-popover li button {
+  width: 100%;
+  text-align: left;
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--color-text);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.icon-assign-popover li button:hover {
+  background: var(--color-surface-alt);
+}
+
+.icon-assign-popover__close {
+  width: 100%;
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-dim);
+  border-radius: var(--radius);
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+}
+
+/* Agents panel (PLAN.md §8 item 3). */
+
+.agents-panel__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--space-3);
+}
+
+.agent-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+}
+
+.agent-card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.agent-card__icon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius);
+  background: var(--color-surface-alt);
+  flex-shrink: 0;
+}
+
+.agent-card__identity {
+  flex: 1;
+  min-width: 0;
+}
+
+.agent-card__name {
+  font-weight: 600;
+}
+
+.agent-card__role {
+  font-size: 0.8rem;
+  color: var(--color-text-dim);
+}
+
+.agent-card__status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--color-border);
+}
+
+.agent-card__status-dot--active {
+  background: var(--color-accent);
+  animation: agent-pulse 1.6s ease-out infinite;
+}
+
+.agent-card__status-dot--idle {
+  background: var(--color-text-dim);
+}
+
+.agent-card__status-dot--blocked {
+  background: var(--color-danger);
+}
+
+.agent-card__status-dot--offline {
+  background: var(--color-border);
+}
+
+@keyframes agent-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(124, 92, 255, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(124, 92, 255, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(124, 92, 255, 0);
+  }
+}
+
+.agent-card__task {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-text);
+}
+
+.agent-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  font-size: 0.75rem;
+  color: var(--color-text-dim);
+}
+
+.agent-card__edit {
+  appearance: none;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.agent-drawer {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-4);
+  width: 420px;
+  max-width: calc(100vw - var(--space-5));
+  max-height: calc(100vh - var(--space-5));
+  overflow-y: auto;
+}
+
+.agent-drawer__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-3);
+}
+
+.agent-drawer__header button {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--color-text-dim);
+  font-size: 1.4rem;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.agent-drawer__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+  font-size: 0.85rem;
+  color: var(--color-text-dim);
+}
+
+.agent-drawer__field input,
+.agent-drawer__field select,
+.agent-drawer__field textarea {
+  padding: var(--space-2);
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  border-radius: var(--radius);
+  font-family: inherit;
+}
+
+.agent-drawer__actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.agent-drawer__error {
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+}
