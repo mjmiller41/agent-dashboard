@@ -22,5 +22,10 @@ export const ConfigSchema = z.object({
   title: z.string().min(1),
   theme: ThemeSchema,
   tabs: z.array(TabSchema),
+  // Roots the Skill Trees "Scan" button walks (PLAN.md §5/§8 item 8: `POST /api/scan/skills`).
+  // Optional so workspace.example/config.json and any pre-existing user config (predating this
+  // field) still validate; the server applies the documented defaults
+  // (~/.claude/skills, ~/.pi/agent/skills, ~/.agents/skills) when absent.
+  skillRoots: z.array(z.string().min(1)).optional(),
 });
 export type Config = z.infer<typeof ConfigSchema>;

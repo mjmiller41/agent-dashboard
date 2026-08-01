@@ -1175,3 +1175,239 @@ and/or the Flows playback transport bar before marking issue #7 closed, or expli
 - `npm run check` (typecheck + lint + format + all vitest suites across `shared`/`server`/`web`):
   **green** — 185 tests total (45 shared + 117 server + 23 web, unchanged), 0 lint errors, 0 format
   issues.
+
+## Phase 5 — Panels (part 4: closing the Skills-scan and Flows-playback gaps)
+
+Fourth and final coder session closing PLAN.md §11's Phase 5 acceptance line. Scope was
+exactly the two gaps part 3's DECISIONS.md entry flagged honestly: `POST /api/scan/skills` +
+the Skill Trees "Scan" button (§5/§8 item 8), and the Flows playback transport bar
+(§8 item 9). No other panel or file outside that was touched.
+
+### Exact reading of the "category" ambiguity (Part A — Skills scan)
+
+PLAN.md §8 item 8 says the scan "groups by parent dir... writes skills.json (edges: root ->
+category -> skill)" — a literal 3-tier graph. Checked the real on-disk shape of all three
+default roots on this machine before writing the walker (per the brief's explicit instruction):
+
+- `~/.claude/skills/*/SKILL.md`
+- `~/.pi/agent/skills` (a symlink to `~/.omp/agent/skills`) `/*/SKILL.md`
+- `~/.agents/skills/*/SKILL.md`
+
+All three are **flat** — every skill is a direct child directory of the root
+(`<root>/<skill-name>/SKILL.md`), with no intermediate category subdirectory anywhere. Under
+that reality, "the parent dir" of every skill IS the root itself, so a literal "root -> category
+-> skill" 3-node chain would need an empty/duplicate middle tier with nothing to distinguish it
+from the root. **Decision:** each configured root gets exactly one scanned node
+(`category: 'root'`, a self-referential sentinel value, matching the existing static example
+data's `category: "category"` sentinel used by `cat-research`/`cat-coding`/`cat-writing`) that
+doubles as both "root" and "category" for that root's skills; every skill under it gets
+`category: <that root node's id>` and one edge from the root node to itself. This is the same
+"category is a plain string field, not a schema-level node-kind" convention Phase 5 part 3's
+DECISIONS.md already established, applied consistently to a real scan instead of hand-authored
+data. If a root's on-disk shape ever grows real subdirectory-level categories, this collapses
+back to the literal 3-tier reading with no schema change needed (`SkillNode.category` is already
+just `z.string()`) — logged here per the brief's "record your exact reading" instruction, same
+as part 2's backlog-rail call.
+
+### Deviations
+
+- **`server/src/skills/frontmatter.ts` is a new, PLAN-unlisted hand-rolled YAML-frontmatter
+  parser**, not a new dependency. PLAN.md §12 guardrail 6 requires a written note for any new
+  dependency; the brief itself pre-authorized this exact approach ("a tiny hand-rolled frontmatter
+  parser is fine — do not add a new YAML-parsing dependency"). It only extracts `name`/
+  `description` (plain scalars, quoted scalars, and `>-`/`>`/`|-`/`|` block-scalar folding) — not a
+  general YAML parser. Verified against 8 real `SKILL.md` files on this machine (including a
+  multi-line `>-` folded description) before committing to the design, and unit-tested directly
+  (`frontmatter.test.ts`) in addition to the brief's requested `scan.test.ts` coverage.
+- **`server/src/skills/scan.ts` is a new module split out from `routes/scan.ts`**, mirroring the
+  existing `chat/tools.ts` + `routes/chat.ts` split (business logic testable independent of Hono).
+  Not explicitly requested by the brief, but the brief's own reference to "your call, check the
+  existing routes/ directory convention" for whether scan gets its own route file implies the same
+  reasoning extends to keeping the route handler thin.
+- **Effective-status time-bounded comparisons use numeric epoch ms (`Date.parse`), not raw ISO
+  string comparison**, even though `effectiveStepStatus` (part 3's static function, left unchanged)
+  already compared `event.at` strings directly. Found via a live browser check while building the
+  e2e test: a scrub position derived from `new Date(...).toISOString()` always includes
+  milliseconds (`"...T10:02:10.000Z"`), while the shipped example data's `at` fields never do
+  (`"...T10:02:10Z"`) — comparing those two string shapes lexicographically can rank a scrub
+  position _before_ an event representing the exact same real instant, since `'.'` (0x2E) sorts
+  before `'Z'` (0x5A) in ASCII. `effectiveStepStatusAt`'s new time-bounded comparisons use
+  `Date.parse()` throughout (matching `useFlowPlayback`'s own epoch-ms `scrubMs` state) to sidestep
+  the format mismatch entirely, rather than normalizing string formats. `effectiveStepStatus` (the
+  pre-existing static function) is untouched and still string-based — safe because every value it
+  ever compares comes from the same source (`FlowRunEvent.at`), so the two different `at` string
+  shapes never actually meet there.
+- **The playback clock (`useFlowPlayback.ts`) uses two non-effect patterns that a first draft got
+  wrong and `eslint-plugin-react-hooks`'s newer rules caught**, both logged since they're
+  reusable lessons: (1) resetting the scrub position when a different run is selected is done via
+  React's documented "adjust state during render when a prop changes" pattern (a plain `if` in the
+  component body that calls `setState`), not a `useEffect` — the first draft's effect-based version
+  was flagged by `react-hooks/set-state-in-effect` ("calling setState synchronously within an
+  effect can trigger cascading renders"), since resetting derived state from a changed prop is pure
+  data adjustment, not synchronizing with an external system (same reasoning Phase 5 part 3's
+  `FlowsPanel` selectedPath fallback already used, just re-encountered here). (2) the rAF loop
+  advances `scrubMs` via a plain functional `setState` update read directly inside the
+  `requestAnimationFrame` callback, not via a mirrored `useRef` mutated on every render — the first
+  draft's `scrubRef.current = scrubMs` line (written at the top of the hook body, to keep the rAF
+  callback's closure fresh) was flagged by `react-hooks/refs` ("Cannot access refs during render");
+  a ref should only be read/written in effects or event handlers, not render. Both were only caught
+  by `eslint .` (not typecheck), and were the correctness fix — not just a lint-silencing exercise
+  — since the ref-mirroring draft still _worked_ by pure luck, but violated the rule React relies on
+  to keep concurrent rendering safe. See the live-verification note below for a second, genuinely
+  functional bug this rewrite also fixed.
+- **`data-scrub-ms` (an unquantized, exact epoch-ms attribute on `.flow-playback`) was added to
+  `FlowPlaybackBar.tsx` after live testing surfaced a real browser quirk**: the scrub `<input
+type="range">`'s own DOM `value` is snapped to its `step` attribute by the browser's _value
+  sanitization algorithm_ — and, contrary to a first reading of the HTML spec, this sanitization
+  applies to **programmatic** sets of `.value` (i.e. React's controlled-input re-renders), not just
+  user-driven drags/key presses. Reproduced live: during playback, `useFlowPlayback`'s internal
+  `scrubMs` state was genuinely advancing every animation frame (confirmed via direct render-body
+  logging), yet the `<input>`'s own `.value` stayed frozen at the nearest 10-second step boundary
+  for over a second of real playback before visibly jumping to the next boundary — not a product
+  bug, but it meant the DOM had no reliable, unquantized way to observe the _true_ scrub position
+  for verification. `data-scrub-ms={Math.round(scrubMs)}` exposes it directly, following the exact
+  same "not just visually, in the DOM" precedent `FlowStepNode`'s pre-existing `data-status`
+  attribute already established (its own comment says as much) — not a test-only hook, a legitimate
+  small addition with the same rationale as the attribute it's modeled on.
+
+### Deferred
+
+- Persisting playback speed/scrub position, or the scan's `rootsScanned`/`rootsSkipped` summary,
+  anywhere — both are ephemeral UI/response state, matching Phase 5 part 2/3's "session-local UI
+  chrome doesn't need a workspace file" precedent (backlog-collapsed toggle, docs folder-expand
+  state, skill-graph drag-pin positions) — none of `ConfigSchema`/`SkillsFileSchema` has a field for
+  it and PLAN.md §8 doesn't ask for it.
+- A "browse past scans" or "scan history" UI — PLAN.md §8 item 8 only asks for a Scan button that
+  regenerates `skills.json`; nothing about retaining prior scan results beyond the merge itself.
+- Deeper (2+ level) category nesting in the scanner — see the "exact reading" section above; the
+  code already collapses cleanly back to a literal 3-tier graph if a root ever grows real
+  subdirectory categories, without a schema change, so there's nothing to build speculatively now.
+
+### Notes (not deviations, just choices made where the brief left room)
+
+- The scan's skill/root node ids are derived from a full-path slug (`slugify(absoluteRootPath)` /
+  `slugify(absoluteRootPath) + '-' + slugify(skillDirName)`), not just the directory basename —
+  guarantees uniqueness across multiple configured roots that might contain same-named skill
+  directories (a real possibility once a user has more than one root configured), at the cost of
+  longer, less human-readable ids. Labels (what's actually displayed) stay short and readable
+  (`~/.claude/skills`, `tdd`, etc.) — only the internal id is verbose.
+- The merge's "an existing edge survives if both endpoints still resolve and it isn't already
+  produced by this scan" rule (PLAN.md §8 item 8's "merge, don't clobber" made concrete) is
+  exercised by two dedicated `scan.test.ts` cases: one showing a stale scanned-to-scanned edge does
+  NOT survive a re-scan (the whole point of "don't clobber... old scanned junk", per the brief's own
+  framing), and one showing a hand-added edge between a _manual_ node and a _still-resolving
+  scanned_ node (the real root/skill id, which is deterministic across re-scans since it's derived
+  from the fixture path, not a random uuid) DOES survive — proving the merge isn't simply "drop
+  every edge touching anything non-manual."
+- The Scan button's loading/error state (`scanning`/`scanError` in `SkillsPanel.tsx`) is local
+  `useState`, not routed through `useWorkspaceFile` — matches PLAN.md §12 guardrail 3's own carve-out
+  precedent (already used by `panels/providers/ProviderDrawer.tsx`'s `busy`/`error` state for its
+  Test/Save/Connect buttons): a POST action's in-flight/error status isn't workspace _file_ data,
+  it's transient request state, so it stays outside the one-data-hook contract the same way every
+  other panel's action-button state already does.
+- `FlowCanvas`'s `selectedRunIndex` defaults to the _last_ run (`runs.length - 1`, "most recent"),
+  computed once via a lazy `useState` initializer rather than a derived-during-render value like
+  `FlowsPanel`'s own `selectedPath` fallback — the two cases actually differ: `FlowsPanel`'s parent
+  remounts `FlowDetail` with `key={selectedPath}` on every picker change, so _its_ default has to be
+  recomputed on every render since there's no state to seed once; `FlowCanvas` itself is what
+  changes state on a _run-picker_ change (via `setSelectedRunIndex`), so a one-time lazy initializer
+  is the correct (and simpler) tool there — using a plain non-lazy expression would recompute the
+  default's underlying `Math.max(0, runs.length - 1)` needlessly on every render without changing
+  behavior, but the lazy form documents the "only matters once, at mount" intent explicitly.
+- The playback transport bar's scrub `<input>` step is 10 seconds (`SCRUB_STEP_MS` in
+  `FlowPlaybackBar.tsx`) — coarse enough that a handful of `Home`/`ArrowRight` keyboard presses
+  reaches a deterministic, exact scrub position (used by `flows.spec.ts`'s real keyboard-interaction
+  test), fine enough to distinguish the individual step transitions in both shipped example flows'
+  runs (which span minutes, with events tens of seconds to a couple of minutes apart). The _true_
+  scrub state (`scrubMs`, and by extension every node's computed status) is never quantized —
+  only the slider widget's own displayed/snapped position is, per the `data-scrub-ms` deviation
+  above.
+
+### Live verification results (guardrail #7)
+
+Ran with real network access irrelevant (no provider/OAuth work this session); results below are
+from actually running the server, Vite dev server, and a real Chromium browser together — a
+throwaway Playwright/Node debug script (deleted before the final commit, per the established
+convention) drove interactive verification beyond what the committed e2e specs assert:
+
+- **Scan button, live**: clicked Scan against a temp fixture directory with two real `SKILL.md`
+  files (`>-` folded and plain-scalar frontmatter, one directory deliberately missing `SKILL.md` to
+  prove it's skipped); confirmed a real `POST /api/scan/skills` request fired, the graph's node
+  count changed from 12 to 4 (the pre-existing manual node + 1 root + 2 fixture skills) **without
+  any explicit refetch call in `SkillsPanel.tsx`** — confirming the brief's "confirm this is true
+  rather than adding a second refetch mechanism" instruction: the server's `skills.json` write
+  really does flow through chokidar -> SSE `ws-change` -> the existing `useWorkspaceFile`
+  subscription with zero extra plumbing. Clicking a freshly-scanned node's real detail drawer showed
+  the actual frontmatter description text, not a directory-name fallback, and `source: 'scanned'`.
+- **Missing-root skip, live**: pointed `config.json`'s `skillRoots` at a path that doesn't exist;
+  the scan request still returned 200 with that root in `rootsSkipped`, zero console errors, zero
+  server-side error response — confirmed via `curl` against the real running server, not just the
+  vitest suite.
+- **Flows playback, live — found and root-caused a real advancement bug** (see the "Deviations"
+  entries above for the two React-rules-driven rewrites): the very first working-looking
+  implementation appeared completely broken under a naive e2e check (`scrubInput.inputValue()`
+  never changed after clicking Play, across 1.2+ real seconds of waiting). Traced with layered
+  `console.log`s at three levels (inside the rAF frame callback, inside the hook's own render body,
+  inside `FlowPlaybackBar`'s render body) to isolate exactly where the value stopped advancing —
+  found it was **not** advancing (confirmed the hook's own `scrubMs` state and the child
+  component's received prop both climbed correctly, frame after frame) — the break was purely in
+  the _native range input's own DOM `.value`_, due to step-snapping (see the `data-scrub-ms`
+  deviation above). This is exactly the class of defect PLAN.md §12 guardrail #7 exists to catch:
+  it passed `npm run check` cleanly and only surfaced under a real browser, real timers, and a real
+  DOM read-back — not from inspection.
+- Confirmed no background dev-server/Playwright/debug-script processes or `:4680`/`:5173` listeners
+  remained after each verification pass (`ss -ltnp` + `ps -ef`, checked repeatedly — including
+  catching and killing one stray `node src/index.ts` left over from an earlier interactive debug
+  session before the final `npm run e2e` reruns, the same category of self-inflicted verification
+  mistake part 3's DECISIONS.md entry already warns future sessions about). The runtime
+  `./workspace/` directory was removed before three of the four final `npm run e2e` runs below, to
+  force a fresh reseed from `workspace.example/` rather than reusing a previously-seeded copy; a
+  direct `diff` against `workspace.example/{config,skills}.json` after the full run confirms both
+  mutating specs (`skills.spec.ts`'s Scan test, plus every earlier spec that mutates a workspace
+  file) fully restored their fixtures in `finally` blocks — zero net diff.
+
+### `npm run e2e` — run 4 times consecutively (closing-slice thoroughness, more than the "at least 3" ask)
+
+All 10 specs (the same 9 spec **files** as part 3, now with new assertions inside
+`skills.spec.ts` — a second `test()` block — and `flows.spec.ts`) green, 0 browser console errors,
+every run:
+
+1. First run (existing seeded `./workspace/` reused after fixing a stray leftover dev-server
+   process — see above): **10/10 passed** in 22.1s.
+2. Second run (same seeded `./workspace/` reused, every spec's own `finally` block already restored
+   its fixtures): **10/10 passed** in 22.1s.
+3. Third run (removed `./workspace/`, forced a fresh reseed from `workspace.example/`): **10/10
+   passed** in 22.1s.
+4. Fourth run (removed `./workspace/` again, fresh reseed): **10/10 passed** in 22.2s.
+
+### §11 Phase 5 acceptance sweep (full phase, all four sessions)
+
+| #   | Criterion (PLAN.md §11)                                        | Status | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| --- | -------------------------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | All routed panels render example data with zero console errors | ✅     | Unchanged from part 3 — all 11 `KNOWN_PANEL_IDS` have real components; every e2e spec asserts `expect(consoleErrors).toEqual([])`; 4/4 consecutive full-suite runs green this session, including the two new Skills/Flows assertion blocks.                                                                                                                                                                                                                                                                                                                           |
+| 2   | Playwright suite green                                         | ✅     | 10/10 tests (9 spec files), 4 consecutive full runs this session (see above), including 2 with a forced fresh `workspace.example/` reseed.                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| 3   | Sprints drag-drop demonstrated in tests                        | ✅     | Unchanged from part 2 — `e2e/sprints.spec.ts`, real mouse drag, asserts `sprints.json` on disk.                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| 4   | Flows playback demonstrated in tests                           | ✅     | **Closed this session.** `e2e/flows.spec.ts` now exercises a real transport bar: real keyboard scrubbing (`Home`/`ArrowRight`) to a deterministic mid-run position, asserting two nodes' `data-status` genuinely differ from the run's final state (computed from the same fixture JSON, not hardcoded); real Play click + bounded real-time wait + Pause, asserting the scrub position actually advances and actually stops (via `data-scrub-ms`, immune to the range input's own step-snapping display quirk); a run picker `<select>` confirmed present and wired. |
+| 5   | Skills scan demonstrated in tests                              | ✅     | **Closed this session.** `e2e/skills.spec.ts`'s new test sets `config.json.skillRoots` to a real temp fixture directory, clicks the real Scan button, and asserts against a real on-disk `skills.json` read-back: the fixture's skills appear with real frontmatter-derived labels/descriptions and `source: 'scanned'`, a pre-existing `source: 'manual'` node survives the merge untouched, and the node/edge counts match exactly what the merge logic predicts.                                                                                                   |
+| 6   | Crons calendar demonstrated in tests                           | ✅     | Unchanged from part 3 — `e2e/crons.spec.ts`, real month grid, hover popover, invalid-schedule badge, enabled-toggle disk round trip.                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+
+**Overall Phase 5 status: all six literal §11 acceptance bullets are now met.** No remaining gaps
+against §11's Phase 5 line; issue #7 is closeable as of this session pending orchestrator review.
+
+### Testing
+
+- `server/src/skills/frontmatter.test.ts` (6 cases) — plain scalar, quoted scalar, `>-` folded
+  multi-line description, irrelevant-key skipping, no-frontmatter, frontmatter-with-neither-field.
+- `server/src/routes/scan.test.ts` (5 cases) — real temp-dir fixture walk producing expected
+  nodes/edges (plus a non-skill directory correctly skipped), real frontmatter fields read
+  end-to-end through the route, a missing root skipped silently, a pre-seeded manual node surviving
+  a re-scan while stale scanned nodes/edges are replaced, and a hand-added edge between a manual
+  node and a still-resolving scanned node surviving a re-scan.
+- `e2e/skills.spec.ts` — new second `test()` block: real Scan button click, real fixture skill root,
+  real on-disk `skills.json` read-back, manual-node-survives-merge assertion.
+- `e2e/flows.spec.ts` — extended the existing test: real keyboard-driven scrub to a computed
+  mid-run position with genuinely different (not final-state) node statuses, real Play/Pause timing
+  assertions, run-picker presence, transport-bar reset-on-flow-switch.
+- `npm run check` (typecheck + lint + format + all vitest suites across `shared`/`server`/`web`):
+  **green** — 196 tests total (45 shared + 128 server [117 + 11 new] + 23 web), 0 lint errors, 0
+  format issues.
